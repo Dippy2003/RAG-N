@@ -6,4 +6,7 @@ dependencies = [
     "sentence-transformers==3.4.1",
     "supabase==2.15.0",
     "python-dotenv==1.0.1",
+    "google-generativeai==0.8.5",
+    "groq==0.13.1",
+    "pydantic==2.10.6",
 ]
