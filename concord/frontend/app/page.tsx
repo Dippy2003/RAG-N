@@ -29,6 +29,22 @@ type Escalation = {
   urgency: string;
 };
 
+type IdentityValidation = {
+  given_id: string;
+  is_correct: boolean;
+  correct_id: string;
+  confidence: number;
+  mismatch_fields: string[];
+  explanation: string;
+  patient_name_found: string;
+};
+
+type VerifiedResponse = {
+  identity: IdentityValidation;
+  reconciliation: ReconcileResponse;
+  id_was_corrected: boolean;
+};
+
 type ReconcileResponse = {
   source_ref_id: string;
   patient_name: string;
@@ -70,27 +86,47 @@ const URGENCY_STYLE: Record<string, string> = {
 
 const SAMPLE_IDS = ["CLN-001", "CLN-002", "CLN-003", "LAB-001", "PHM-001"];
 
+type Mode = "pipeline" | "agent" | "verified";
+
 export default function Home() {
   const [refId, setRefId] = useState("");
+  const [patientName, setPatientName] = useState("");
+  const [dob, setDob] = useState("");
+  const [nic, setNic] = useState("");
+  const [mode, setMode] = useState<Mode>("pipeline");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ReconcileResponse | null>(null);
+  const [verifiedResult, setVerifiedResult] = useState<VerifiedResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [agentMode, setAgentMode] = useState(false);
 
   async function handleReconcile(id?: string) {
     const target = (id ?? refId).trim();
     if (!target) return;
+    if (mode === "verified" && !patientName.trim()) {
+      setError("Patient name is required for Verified mode.");
+      return;
+    }
     setLoading(true);
     setResult(null);
+    setVerifiedResult(null);
     setError(null);
     try {
-      const endpoint = agentMode ? `${API}/reconcile-agent/${target}` : `${API}/reconcile/${target}`;
-      const res = await fetch(endpoint, { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.detail ?? `HTTP ${res.status}`);
+      if (mode === "verified") {
+        const res = await fetch(`${API}/reconcile-verified`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source_ref_id: target, patient_name: patientName, dob, nic }),
+        });
+        if (!res.ok) { const b = await res.json(); throw new Error(b.detail ?? `HTTP ${res.status}`); }
+        const data: VerifiedResponse = await res.json();
+        setVerifiedResult(data);
+        setResult(data.reconciliation);
+      } else {
+        const endpoint = mode === "agent" ? `${API}/reconcile-agent/${target}` : `${API}/reconcile/${target}`;
+        const res = await fetch(endpoint, { method: "POST" });
+        if (!res.ok) { const b = await res.json(); throw new Error(b.detail ?? `HTTP ${res.status}`); }
+        setResult(await res.json());
       }
-      setResult(await res.json());
       if (id) setRefId(id);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -147,41 +183,41 @@ export default function Home() {
           <div className="flex items-center justify-between mb-4">
             <span className="text-xs text-white/40 font-medium uppercase tracking-widest">Mode</span>
             <div className="flex items-center gap-1 p-1 rounded-xl bg-white/[0.05] border border-white/[0.08]">
-              <button
-                onClick={() => setAgentMode(false)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  !agentMode
-                    ? "bg-white/10 text-white shadow"
-                    : "text-white/35 hover:text-white/60"
-                }`}
-              >
-                Pipeline
-              </button>
-              <button
-                onClick={() => setAgentMode(true)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                  agentMode
-                    ? "bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow"
-                    : "text-white/35 hover:text-white/60"
-                }`}
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-current" />
-                RAG + Agent
-              </button>
+              {(["pipeline", "agent", "verified"] as Mode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${
+                    mode === m
+                      ? m === "verified"
+                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow"
+                        : m === "agent"
+                        ? "bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow"
+                        : "bg-white/10 text-white shadow"
+                      : "text-white/35 hover:text-white/60"
+                  }`}
+                >
+                  {m === "verified" ? "✦ Verified" : m === "agent" ? "⚡ RAG + Agent" : "Pipeline"}
+                </button>
+              ))}
             </div>
           </div>
 
-          {agentMode && (
+          {mode === "agent" && (
             <div className="mb-4 px-4 py-3 rounded-xl bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300 leading-relaxed">
-              <span className="font-semibold">Agent mode:</span> Gemini drives a tool-use loop — retrieves clinical guidelines from the knowledge base (RAG) per conflict, then decides resolutions dynamically.
+              <span className="font-semibold">Agent mode:</span> LLM drives a tool-use loop — retrieves clinical guidelines (RAG) per conflict, then resolves dynamically.
+            </div>
+          )}
+          {mode === "verified" && (
+            <div className="mb-4 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 leading-relaxed">
+              <span className="font-semibold">Verified mode:</span> Two agents run in parallel — Agent 1 validates whether the ID matches the patient&apos;s stated details. If wrong, it finds the correct ID and Agent 2 re-reconciles with it.
             </div>
           )}
 
-          <div className="flex gap-3">
+          {/* ID input */}
+          <div className="flex gap-3 mb-3">
             <div className="flex-1 relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/25 text-sm">
-                #
-              </span>
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/25 text-sm">#</span>
               <input
                 type="text"
                 placeholder="Source Ref ID — CLN-001, LAB-002, PHM-003…"
@@ -208,7 +244,34 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 mt-4 flex-wrap">
+          {/* Verified mode extra fields */}
+          {mode === "verified" && (
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              <input
+                type="text"
+                placeholder="Patient name (as stated)"
+                value={patientName}
+                onChange={(e) => setPatientName(e.target.value)}
+                className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
+              />
+              <input
+                type="text"
+                placeholder="Date of birth (YYYY-MM-DD)"
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+                className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
+              />
+              <input
+                type="text"
+                placeholder="NIC number (optional)"
+                value={nic}
+                onChange={(e) => setNic(e.target.value)}
+                className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
+              />
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-white/25">Try:</span>
             {SAMPLE_IDS.map((id) => (
               <button
@@ -239,8 +302,14 @@ export default function Home() {
             <div className="flex flex-col items-center gap-4 text-center">
               <div className="w-12 h-12 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin" />
               <div>
-                <p className="text-sm font-medium text-white/70">Running agentic loop&hellip;</p>
-                <p className="text-xs text-white/30 mt-1">Matching identities · Detecting conflicts · Adjudicating · Reviewing</p>
+                <p className="text-sm font-medium text-white/70">
+                  {mode === "verified" ? "Running dual-agent verification…" : "Running agentic loop…"}
+                </p>
+                <p className="text-xs text-white/30 mt-1">
+                  {mode === "verified"
+                    ? "Agent 1: Validating identity · Agent 2: Detecting conflicts · Reconciling"
+                    : "Matching identities · Detecting conflicts · Adjudicating · Reviewing"}
+                </p>
               </div>
             </div>
           </div>
@@ -249,6 +318,64 @@ export default function Home() {
         {/* Results */}
         {result && !loading && (
           <div className="space-y-5">
+
+            {/* Identity validation panel — verified mode only */}
+            {verifiedResult && (
+              <div className={`rounded-2xl border px-6 py-5 ${
+                verifiedResult.id_was_corrected
+                  ? "border-amber-500/30 bg-amber-500/10"
+                  : "border-emerald-500/30 bg-emerald-500/10"
+              }`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg ${
+                      verifiedResult.id_was_corrected ? "bg-amber-500/20" : "bg-emerald-500/20"
+                    }`}>
+                      {verifiedResult.id_was_corrected ? "⚠" : "✓"}
+                    </div>
+                    <div>
+                      <p className={`text-xs font-bold uppercase tracking-widest mb-0.5 ${
+                        verifiedResult.id_was_corrected ? "text-amber-400" : "text-emerald-400"
+                      }`}>
+                        {verifiedResult.id_was_corrected ? "Identity Mismatch — ID Corrected" : "Identity Verified"}
+                      </p>
+                      <p className={`text-sm ${verifiedResult.id_was_corrected ? "text-amber-200/80" : "text-emerald-200/80"}`}>
+                        {verifiedResult.identity.explanation}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs text-white/30 mb-1">Confidence</p>
+                    <p className={`text-lg font-bold ${verifiedResult.id_was_corrected ? "text-amber-300" : "text-emerald-300"}`}>
+                      {Math.round(verifiedResult.identity.confidence * 100)}%
+                    </p>
+                  </div>
+                </div>
+
+                {verifiedResult.id_was_corrected && (
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3">
+                      <p className="text-xs text-red-400/60 uppercase tracking-widest mb-1">Given ID</p>
+                      <p className="text-sm font-mono font-semibold text-red-300 line-through">{verifiedResult.identity.given_id}</p>
+                    </div>
+                    <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-3">
+                      <p className="text-xs text-emerald-400/60 uppercase tracking-widest mb-1">Correct ID</p>
+                      <p className="text-sm font-mono font-semibold text-emerald-300">{verifiedResult.identity.correct_id}</p>
+                    </div>
+                  </div>
+                )}
+
+                {verifiedResult.identity.mismatch_fields.length > 0 && (
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-amber-400/60">Mismatched fields:</span>
+                    {verifiedResult.identity.mismatch_fields.map((f) => (
+                      <span key={f} className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium">{f}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Patient card */}
             <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 shadow-2xl">
               <div className="flex items-start justify-between mb-6">

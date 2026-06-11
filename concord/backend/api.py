@@ -11,6 +11,8 @@ Then call it:
     curl -X POST http://localhost:8000/reconcile/CLN-001
 """
 
+import concurrent.futures
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -19,6 +21,7 @@ from action_executor import ExecutionReport, execute_actions
 from adjudicator import ReconciliationResult, reconcile
 from agent import AgentReport, run_agent
 from escalation_reviewer import EscalationReport, run_escalation_review
+from identity_agent import IdentityValidationResult, validate_identity
 
 app = FastAPI(
     title="Concord",
@@ -78,6 +81,29 @@ class ReconcileResponse(BaseModel):
     mode: str = "pipeline"
     turns_taken: int | None = None
     guidelines_used: list[str] | None = None
+
+
+class IdentityValidationOut(BaseModel):
+    given_id: str
+    is_correct: bool
+    correct_id: str
+    confidence: float
+    mismatch_fields: list[str]
+    explanation: str
+    patient_name_found: str
+
+
+class VerifiedReconcileRequest(BaseModel):
+    source_ref_id: str
+    patient_name: str
+    dob: str = ""
+    nic: str = ""
+
+
+class VerifiedReconcileResponse(BaseModel):
+    identity: IdentityValidationOut
+    reconciliation: ReconcileResponse
+    id_was_corrected: bool
 
 
 # ------------------------------------------------------------------ #
@@ -196,4 +222,100 @@ def reconcile_patient(source_ref_id: str):
         overall_safe=escalation.overall_safe,
         adjudication_summary=result.adjudication.summary,
         escalation_ids=escalation.escalation_ids,
+    )
+
+
+def _build_reconcile_response(report: AgentReport) -> ReconcileResponse:
+    all_guidelines = [g for r in report.resolutions for g in r.guidelines_used]
+    return ReconcileResponse(
+        source_ref_id=report.source_ref_id,
+        patient_name=report.patient_name,
+        cluster_id=report.cluster_id,
+        conflicts_detected=len(report.conflicts),
+        conflicts=[ConflictOut(**c) for c in report.conflicts],
+        resolutions=[
+            ResolutionOut(
+                conflict_type=r.conflict_type,
+                field=r.field,
+                action=r.action,
+                chosen_value=r.chosen_value,
+                rationale=r.rationale,
+                confidence=r.confidence,
+            )
+            for r in report.resolutions
+        ],
+        changes_applied=report.changes_applied,
+        escalations=[
+            EscalationOut(field=e.field, reason=e.reason, urgency=e.urgency)
+            for e in report.escalations
+        ],
+        overall_safe=report.overall_safe,
+        adjudication_summary=report.summary,
+        escalation_ids=report.escalation_ids,
+        mode="agent",
+        turns_taken=report.turns_taken,
+        guidelines_used=list(dict.fromkeys(all_guidelines)),
+    )
+
+
+@app.post("/reconcile-verified", response_model=VerifiedReconcileResponse)
+def reconcile_verified(req: VerifiedReconcileRequest):
+    """
+    Dual-agent endpoint.
+
+    Runs two agents concurrently:
+      Agent 1 — Identity Validator: checks if the given source_ref_id actually
+                belongs to the patient based on their stated name/dob/nic.
+                If wrong, finds the correct ID.
+      Agent 2 — Reconciliation Agent: runs RAG + conflict resolution.
+
+    If Agent 1 finds the ID was wrong, Agent 2 is re-run with the correct ID.
+    Returns both the identity validation result and the reconciliation result.
+    """
+    print(f"[api] Starting dual-agent reconciliation for {req.source_ref_id}")
+
+    # Run both agents concurrently
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        identity_future = pool.submit(
+            validate_identity,
+            req.source_ref_id,
+            req.patient_name,
+            req.dob,
+            req.nic,
+        )
+        recon_future = pool.submit(run_agent, req.source_ref_id)
+
+        try:
+            identity_result: IdentityValidationResult = identity_future.result()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Identity agent failed: {e!s}")
+
+        try:
+            recon_report: AgentReport = recon_future.result()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Reconciliation agent failed: {e!s}")
+
+    id_was_corrected = not identity_result.is_correct
+
+    # If the ID was wrong, re-run reconciliation with the correct ID
+    if id_was_corrected:
+        correct_id = identity_result.correct_id
+        print(f"[api] ID corrected: {req.source_ref_id} → {correct_id}. Re-running reconciliation.")
+        try:
+            recon_report = run_agent(correct_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Re-reconciliation failed: {e!s}")
+
+    return VerifiedReconcileResponse(
+        identity=IdentityValidationOut(
+            given_id=identity_result.given_id,
+            is_correct=identity_result.is_correct,
+            correct_id=identity_result.correct_id,
+            confidence=identity_result.confidence,
+            mismatch_fields=identity_result.mismatch_fields,
+            explanation=identity_result.explanation,
+            patient_name_found=identity_result.patient_name_found,
+        ),
+        reconciliation=_build_reconcile_response(recon_report),
+        id_was_corrected=id_was_corrected,
     )
