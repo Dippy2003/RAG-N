@@ -12,9 +12,13 @@ Then call it:
 """
 
 import concurrent.futures
+import json
+import os
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from groq import Groq
 from pydantic import BaseModel
 
 from action_executor import ExecutionReport, execute_actions
@@ -22,6 +26,11 @@ from adjudicator import ReconciliationResult, reconcile
 from agent import AgentReport, run_agent
 from escalation_reviewer import EscalationReport, run_escalation_review
 from identity_agent import IdentityValidationResult, validate_identity
+from rag_retriever import format_guidelines_context, retrieve_guidelines
+
+load_dotenv()
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 app = FastAPI(
     title="Concord",
@@ -114,6 +123,23 @@ class VerifiedReconcileResponse(BaseModel):
     identity: IdentityValidationOut
     reconciliation: ReconcileResponse
     id_was_corrected: bool
+
+
+class ChatMessage(BaseModel):
+    role: str   # "user" | "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatMessage] = []
+    source_ref_id: str = ""
+    reconciliation_context: dict | None = None   # full ReconcileResponse JSON from frontend
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    guidelines_used: list[str] = []
 
 
 # ------------------------------------------------------------------ #
@@ -233,6 +259,93 @@ def reconcile_patient(source_ref_id: str):
         adjudication_summary=result.adjudication.summary,
         escalation_ids=escalation.escalation_ids,
     )
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(req: ChatRequest):
+    """
+    Conversational endpoint. Answers clinical questions using RAG over the
+    medical guidelines knowledge base, with optional patient context.
+    """
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
+
+    # Retrieve relevant guidelines for the user's message
+    guidelines = retrieve_guidelines(req.message, top_k=4, threshold=0.25)
+    context_block = format_guidelines_context(guidelines)
+    guideline_ids = [g["guideline_id"] for g in guidelines]
+
+    # Build patient context — prefer the full reconciliation result if provided
+    patient_context = ""
+    if req.reconciliation_context:
+        rc = req.reconciliation_context
+        lines = [f"\nCURRENT RECONCILIATION RESULT FOR PATIENT: {rc.get('patient_name', '')} ({rc.get('source_ref_id', '')})"]
+        lines.append(f"Overall safe: {rc.get('overall_safe')}")
+        lines.append(f"AI Summary: {rc.get('adjudication_summary', '')}")
+        conflicts = rc.get("conflicts", [])
+        if conflicts:
+            lines.append(f"\nConflicts detected ({len(conflicts)}):")
+            for c in conflicts:
+                lines.append(f"  - [{c.get('conflict_type')}] Field: {c.get('field')} | {c.get('source_a')}: {c.get('value_a')} vs {c.get('source_b')}: {c.get('value_b')}")
+                lines.append(f"    Description: {c.get('description')}")
+        resolutions = rc.get("resolutions", [])
+        if resolutions:
+            lines.append(f"\nResolutions ({len(resolutions)}):")
+            for r in resolutions:
+                lines.append(f"  - [{r.get('field')}] Action: {r.get('action')} | Chosen: {r.get('chosen_value')} | Rationale: {r.get('rationale')}")
+        escalations = rc.get("escalations", [])
+        if escalations:
+            lines.append(f"\nEscalations ({len(escalations)}):")
+            for e in escalations:
+                lines.append(f"  - [{e.get('urgency').upper()}] {e.get('field')}: {e.get('reason')}")
+        patient_context = "\n".join(lines)
+    elif req.source_ref_id:
+        try:
+            from supabase import create_client
+            supabase = create_client(
+                os.environ["SUPABASE_URL"],
+                os.environ["SUPABASE_SERVICE_KEY"],
+            )
+            resp = (
+                supabase.table("source_records")
+                .select("source_ref_id, source, name, dob, nic, medications, allergies, blood_type, diagnoses")
+                .eq("source_ref_id", req.source_ref_id)
+                .execute()
+            )
+            if resp.data:
+                patient_context = f"\n\nCURRENT PATIENT RECORD ({req.source_ref_id}):\n{json.dumps(resp.data[0], indent=2, default=str)}"
+        except Exception:
+            pass
+
+    system_prompt = (
+        "You are Concord Assistant, an AI clinical advisor for Sri Lankan healthcare. "
+        "You help clinicians and administrators understand patient record reconciliation results, "
+        "drug interactions, allergy risks, and clinical guidelines.\n\n"
+        "Answer questions clearly and concisely. When clinical guidelines are provided, "
+        "cite them specifically. For safety-critical questions, always flag urgency. "
+        "If a patient record is provided, use it to give context-specific answers.\n\n"
+        f"{context_block}"
+        f"{patient_context}"
+    )
+
+    messages = [{"role": "system", "content": system_prompt}]
+    for m in req.history[-12:]:   # keep last 12 turns for context
+        messages.append({"role": m.role, "content": m.content})
+    messages.append({"role": "user", "content": req.message})
+
+    client = Groq(api_key=GROQ_API_KEY)
+    try:
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=1024,
+        )
+        reply = response.choices[0].message.content or ""
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"LLM error: {e!s}")
+
+    return ChatResponse(reply=reply, guidelines_used=guideline_ids)
 
 
 def _build_reconcile_response(report: AgentReport) -> ReconcileResponse:
