@@ -641,7 +641,7 @@ export default function Home() {
               <div>
                 <p className="text-sm font-semibold text-white">Concord Assistant</p>
                 <p className="text-xs text-white/35">
-                  {result ? `Context: ${result.source_ref_id} · ${result.patient_name}` : "Ask about guidelines, conflicts, or drug interactions"}
+                  {result ? `Context: ${result.source_ref_id} · ${result.patient_name}` : "Ask about any patient — e.g. \"tell me about CLN-001\""}
                 </p>
               </div>
             </div>
@@ -662,9 +662,9 @@ export default function Home() {
                 <p className="text-white/25 text-sm">Ask anything about this patient, drug interactions, or clinical guidelines.</p>
                 <div className="mt-4 flex flex-col gap-2">
                   {[
-                    "Why was this conflict escalated?",
+                    "Tell me about patient CLN-001",
+                    "What conflicts does LAB-001 have?",
                     "What is the warfarin + aspirin risk?",
-                    "Explain the allergy mismatch",
                   ].map((s) => (
                     <button
                       key={s}

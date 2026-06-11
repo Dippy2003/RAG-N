@@ -26,6 +26,7 @@ SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_FALLBACK_MODEL = "llama-3.1-8b-instant"
 
 MAX_TURNS = 10
 
@@ -369,13 +370,25 @@ def validate_identity(
     turns = 0
     while turns < MAX_TURNS and not executor._done:
         turns += 1
-        response = client.chat.completions.create(
-            model=GROQ_MODEL,
-            messages=messages,
-            tools=TOOLS,
-            tool_choice="auto",
-            temperature=0.1,
-        )
+        try:
+            response = client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+                temperature=0.1,
+            )
+        except Exception as e:
+            if "rate_limit_exceeded" in str(e) or "429" in str(e):
+                response = client.chat.completions.create(
+                    model=GROQ_FALLBACK_MODEL,
+                    messages=messages,
+                    tools=TOOLS,
+                    tool_choice="auto",
+                    temperature=0.1,
+                )
+            else:
+                raise
         msg = response.choices[0].message
         messages.append(msg)
 
