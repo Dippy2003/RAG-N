@@ -35,14 +35,23 @@ MAX_TURNS = 10
 # ---------------------------------------------------------------------------
 
 @dataclass
+class FieldStatus:
+    field: str
+    provided: str       # what the patient said
+    stored: str         # what's in the record
+    match: bool         # do they match?
+
+
+@dataclass
 class IdentityValidationResult:
-    given_id: str               # what the user passed in
-    is_correct: bool            # does the ID match the patient's details?
-    correct_id: str             # confirmed correct source_ref_id to use
+    given_id: str
+    is_correct: bool            # ID belongs to this patient
+    correct_id: str             # confirmed correct source_ref_id
     confidence: float
-    mismatch_fields: list[str]  # which fields didn't match
+    mismatch_fields: list[str]  # names of fields that don't match
+    field_details: list[FieldStatus]   # per-field comparison
     explanation: str
-    patient_name_found: str     # name on the record that was confirmed
+    patient_name_found: str
 
 
 # ---------------------------------------------------------------------------
@@ -107,16 +116,15 @@ TOOLS = [
         "function": {
             "name": "confirm_identity",
             "description": (
-                "Call this when you have enough information to make a final determination. "
-                "Provide whether the given ID is correct, what the correct ID is, "
-                "and which fields mismatched."
+                "Call this once you have compared all fields. Report the match/mismatch "
+                "status for EVERY field the patient provided, not just the ID."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "is_correct": {
                         "type": "boolean",
-                        "description": "True if the given source_ref_id belongs to the patient described"
+                        "description": "True if the given source_ref_id belongs to this patient (ID itself is right)"
                     },
                     "correct_source_ref_id": {
                         "type": "string",
@@ -126,21 +134,30 @@ TOOLS = [
                         "type": "string",
                         "description": "The patient name on the confirmed correct record"
                     },
-                    "mismatch_fields": {
+                    "field_comparisons": {
                         "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Fields that didn't match (e.g. ['name', 'dob']). Empty if correct."
+                        "description": "One entry per field the patient provided. Include ALL checked fields.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "field":    {"type": "string", "description": "Field name: name, dob, nic, phone, address"},
+                                "provided": {"type": "string", "description": "What the patient stated"},
+                                "stored":   {"type": "string", "description": "What is in the record"},
+                                "match":    {"type": "boolean", "description": "True if they match (allow minor name typos)"}
+                            },
+                            "required": ["field", "provided", "stored", "match"]
+                        }
                     },
                     "confidence": {
                         "type": "number",
-                        "description": "Confidence score 0.0-1.0 in this determination"
+                        "description": "Confidence score 0.0-1.0"
                     },
                     "explanation": {
                         "type": "string",
-                        "description": "1-2 sentence explanation of the finding"
+                        "description": "1-2 sentence summary of the overall finding"
                     }
                 },
-                "required": ["is_correct", "correct_source_ref_id", "patient_name", "mismatch_fields", "confidence", "explanation"]
+                "required": ["is_correct", "correct_source_ref_id", "patient_name", "field_comparisons", "confidence", "explanation"]
             }
         }
     }
@@ -256,16 +273,27 @@ class IdentityToolExecutor:
         is_correct: bool,
         correct_source_ref_id: str,
         patient_name: str,
-        mismatch_fields: list,
+        field_comparisons: list,
         confidence: float,
         explanation: str,
     ) -> str:
+        field_details = [
+            FieldStatus(
+                field=fc.get("field", ""),
+                provided=fc.get("provided", ""),
+                stored=fc.get("stored", ""),
+                match=bool(fc.get("match", True)),
+            )
+            for fc in field_comparisons
+        ]
+        mismatch_fields = [f.field for f in field_details if not f.match]
         self._result = IdentityValidationResult(
-            given_id="",  # filled in by caller
+            given_id="",
             is_correct=is_correct,
             correct_id=correct_source_ref_id,
             confidence=max(0.0, min(1.0, float(confidence))),
             mismatch_fields=mismatch_fields,
+            field_details=field_details,
             explanation=explanation,
             patient_name_found=patient_name,
         )
@@ -277,22 +305,25 @@ class IdentityToolExecutor:
 # Agent runner
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = """You are the Identity Validation Agent for Concord, a clinical record reconciliation system.
+_SYSTEM_PROMPT = """You are the Identity Validation Agent for Concord, a clinical record reconciliation system in Sri Lanka.
 
-Your job: verify whether a given source_ref_id actually belongs to the patient who provided their details.
+Your job: check whether a given source_ref_id belongs to the patient AND whether every detail the patient provided is correct.
 
 Workflow:
-1. Call lookup_record with the given source_ref_id to see what's stored under that ID.
-2. Compare the stored record's name, date of birth, and NIC with the patient-provided details.
-3. If they match well → call confirm_identity with is_correct=true.
-4. If they DON'T match (different name, DOB, or NIC) → call search_by_details with the patient's stated details to find the correct record.
-5. From the search results, identify the best matching record and call confirm_identity with is_correct=false and the correct source_ref_id.
+1. Call lookup_record with the given source_ref_id to retrieve what is stored.
+2. Compare EVERY field the patient provided against the stored record:
+   - name, dob, nic, phone, address — check each one individually.
+3. If the ID belongs to the right person but some details are wrong → call confirm_identity with is_correct=true but list the mismatching fields in field_comparisons.
+4. If the ID belongs to the WRONG person entirely → call search_by_details to find the correct record, then call confirm_identity with is_correct=false and the correct source_ref_id.
 
-Matching rules:
-- Names: allow minor spelling differences (typos, transliterations of Sinhala/Tamil names). Flag as mismatch only if clearly different person.
-- DOB: exact match required. A 1-year difference is a mismatch.
-- NIC: if provided, exact match is strongest signal. Old format (9 digits + V) and new format (12 digits) may represent the same person.
-- If uncertain, use confidence < 0.7 and explain why.
+Matching rules per field:
+- name: allow minor spelling differences or transliteration variants of Sinhala/Tamil names. Mark mismatch only if clearly a different person.
+- dob: exact match required (YYYY-MM-DD). Any difference is a mismatch.
+- nic: old format (9 digits + V/X) and new format (12 digits) may be the same person — check numerically. Otherwise exact match.
+- phone: ignore spaces/dashes/+94 prefix vs 0 prefix differences. Core digits must match.
+- address: partial match is acceptable (suburb or city match counts). Full mismatch only if completely different location.
+
+IMPORTANT: In field_comparisons, include an entry for EVERY field the patient provided — even matching ones. Set match=true for matches, match=false for mismatches. If a field was not provided by the patient, omit it.
 
 Always call confirm_identity — never end without it."""
 
@@ -302,10 +333,12 @@ def validate_identity(
     patient_name: str,
     dob: str = "",
     nic: str = "",
+    phone: str = "",
+    address: str = "",
 ) -> IdentityValidationResult:
     """
     Runs the identity validation agent.
-    Returns an IdentityValidationResult with the confirmed correct source_ref_id.
+    Checks all provided fields against the stored record, not just the ID.
     """
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY not set.")
@@ -313,13 +346,19 @@ def validate_identity(
     client = Groq(api_key=GROQ_API_KEY)
     executor = IdentityToolExecutor()
 
+    details = [f"  - name: {patient_name}"]
+    if dob:     details.append(f"  - dob: {dob}")
+    if nic:     details.append(f"  - nic: {nic}")
+    if phone:   details.append(f"  - phone: {phone}")
+    if address: details.append(f"  - address: {address}")
+
     user_msg = (
-        f"Validate this patient identity:\n"
-        f"  Given source_ref_id: {source_ref_id}\n"
-        f"  Patient states their name is: {patient_name}\n"
-        f"  Patient states their DOB is: {dob or 'not provided'}\n"
-        f"  Patient states their NIC is: {nic or 'not provided'}\n\n"
-        f"Determine if this source_ref_id belongs to this patient."
+        f"Validate this patient identity.\n\n"
+        f"Given source_ref_id: {source_ref_id}\n\n"
+        f"Patient's stated details:\n" + "\n".join(details) +
+        f"\n\nLook up the record for this ID and compare every detail above. "
+        f"Report which fields match and which do not. "
+        f"If the ID belongs to a completely different person, search for the correct record."
     )
 
     messages = [
@@ -359,13 +398,13 @@ def validate_identity(
             })
 
     if executor._result is None:
-        # Agent didn't call confirm_identity — treat as correct (fallback)
         return IdentityValidationResult(
             given_id=source_ref_id,
             is_correct=True,
             correct_id=source_ref_id,
             confidence=0.5,
             mismatch_fields=[],
+            field_details=[],
             explanation="Identity validation inconclusive. Proceeding with given ID.",
             patient_name_found="",
         )

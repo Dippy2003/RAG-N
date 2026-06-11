@@ -29,12 +29,20 @@ type Escalation = {
   urgency: string;
 };
 
+type FieldStatus = {
+  field: string;
+  provided: string;
+  stored: string;
+  match: boolean;
+};
+
 type IdentityValidation = {
   given_id: string;
   is_correct: boolean;
   correct_id: string;
   confidence: number;
   mismatch_fields: string[];
+  field_details: FieldStatus[];
   explanation: string;
   patient_name_found: string;
 };
@@ -93,6 +101,8 @@ export default function Home() {
   const [patientName, setPatientName] = useState("");
   const [dob, setDob] = useState("");
   const [nic, setNic] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
   const [mode, setMode] = useState<Mode>("pipeline");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ReconcileResponse | null>(null);
@@ -115,7 +125,7 @@ export default function Home() {
         const res = await fetch(`${API}/reconcile-verified`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source_ref_id: target, patient_name: patientName, dob, nic }),
+          body: JSON.stringify({ source_ref_id: target, patient_name: patientName, dob, nic, phone, address }),
         });
         if (!res.ok) { const b = await res.json(); throw new Error(b.detail ?? `HTTP ${res.status}`); }
         const data: VerifiedResponse = await res.json();
@@ -246,28 +256,26 @@ export default function Home() {
 
           {/* Verified mode extra fields */}
           {mode === "verified" && (
-            <div className="grid grid-cols-3 gap-3 mb-3">
-              <input
-                type="text"
-                placeholder="Patient name (as stated)"
-                value={patientName}
-                onChange={(e) => setPatientName(e.target.value)}
-                className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
-              />
-              <input
-                type="text"
-                placeholder="Date of birth (YYYY-MM-DD)"
-                value={dob}
-                onChange={(e) => setDob(e.target.value)}
-                className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
-              />
-              <input
-                type="text"
-                placeholder="NIC number (optional)"
-                value={nic}
-                onChange={(e) => setNic(e.target.value)}
-                className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-all"
-              />
+            <div className="space-y-2 mb-3">
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" placeholder="Patient name (as stated) *" value={patientName}
+                  onChange={(e) => setPatientName(e.target.value)}
+                  className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
+                <input type="text" placeholder="Date of birth (YYYY-MM-DD)" value={dob}
+                  onChange={(e) => setDob(e.target.value)}
+                  className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <input type="text" placeholder="NIC number" value={nic}
+                  onChange={(e) => setNic(e.target.value)}
+                  className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
+                <input type="text" placeholder="Phone number" value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
+                <input type="text" placeholder="Address" value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
+              </div>
             </div>
           )}
 
@@ -321,55 +329,71 @@ export default function Home() {
 
             {/* Identity validation panel — verified mode only */}
             {verifiedResult && (
-              <div className={`rounded-2xl border px-6 py-5 ${
-                verifiedResult.id_was_corrected
-                  ? "border-amber-500/30 bg-amber-500/10"
-                  : "border-emerald-500/30 bg-emerald-500/10"
-              }`}>
-                <div className="flex items-start justify-between gap-4">
+              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+                {/* Header */}
+                <div className={`px-6 py-4 flex items-center justify-between border-b border-white/[0.06] ${
+                  verifiedResult.identity.mismatch_fields.length > 0
+                    ? "bg-amber-500/10"
+                    : "bg-emerald-500/10"
+                }`}>
                   <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg ${
-                      verifiedResult.id_was_corrected ? "bg-amber-500/20" : "bg-emerald-500/20"
-                    }`}>
-                      {verifiedResult.id_was_corrected ? "⚠" : "✓"}
-                    </div>
+                    <span className="text-xl">{verifiedResult.identity.mismatch_fields.length > 0 ? "⚠️" : "✅"}</span>
                     <div>
-                      <p className={`text-xs font-bold uppercase tracking-widest mb-0.5 ${
-                        verifiedResult.id_was_corrected ? "text-amber-400" : "text-emerald-400"
+                      <p className={`text-xs font-bold uppercase tracking-widest ${
+                        verifiedResult.identity.mismatch_fields.length > 0 ? "text-amber-400" : "text-emerald-400"
                       }`}>
-                        {verifiedResult.id_was_corrected ? "Identity Mismatch — ID Corrected" : "Identity Verified"}
+                        {verifiedResult.id_was_corrected
+                          ? "Wrong Patient ID — Corrected"
+                          : verifiedResult.identity.mismatch_fields.length > 0
+                          ? "ID Correct · Detail Mismatches Found"
+                          : "Identity Fully Verified"}
                       </p>
-                      <p className={`text-sm ${verifiedResult.id_was_corrected ? "text-amber-200/80" : "text-emerald-200/80"}`}>
-                        {verifiedResult.identity.explanation}
-                      </p>
+                      <p className="text-xs text-white/40 mt-0.5">{verifiedResult.identity.explanation}</p>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xs text-white/30 mb-1">Confidence</p>
-                    <p className={`text-lg font-bold ${verifiedResult.id_was_corrected ? "text-amber-300" : "text-emerald-300"}`}>
-                      {Math.round(verifiedResult.identity.confidence * 100)}%
-                    </p>
+                    <p className="text-xs text-white/30">Confidence</p>
+                    <p className={`text-xl font-bold ${
+                      verifiedResult.identity.mismatch_fields.length > 0 ? "text-amber-300" : "text-emerald-300"
+                    }`}>{Math.round(verifiedResult.identity.confidence * 100)}%</p>
                   </div>
                 </div>
 
+                {/* ID correction row */}
                 {verifiedResult.id_was_corrected && (
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3">
+                  <div className="grid grid-cols-2 gap-px bg-white/[0.04] border-b border-white/[0.06]">
+                    <div className="bg-[#0d1117] px-6 py-3">
                       <p className="text-xs text-red-400/60 uppercase tracking-widest mb-1">Given ID</p>
                       <p className="text-sm font-mono font-semibold text-red-300 line-through">{verifiedResult.identity.given_id}</p>
                     </div>
-                    <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-4 py-3">
-                      <p className="text-xs text-emerald-400/60 uppercase tracking-widest mb-1">Correct ID</p>
+                    <div className="bg-[#0d1117] px-6 py-3">
+                      <p className="text-xs text-emerald-400/60 uppercase tracking-widest mb-1">Correct ID Used</p>
                       <p className="text-sm font-mono font-semibold text-emerald-300">{verifiedResult.identity.correct_id}</p>
                     </div>
                   </div>
                 )}
 
-                {verifiedResult.identity.mismatch_fields.length > 0 && (
-                  <div className="mt-3 flex items-center gap-2 flex-wrap">
-                    <span className="text-xs text-amber-400/60">Mismatched fields:</span>
-                    {verifiedResult.identity.mismatch_fields.map((f) => (
-                      <span key={f} className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium">{f}</span>
+                {/* Per-field breakdown table */}
+                {verifiedResult.identity.field_details.length > 0 && (
+                  <div className="divide-y divide-white/[0.04]">
+                    <div className="grid grid-cols-4 px-6 py-2 bg-white/[0.02]">
+                      <p className="text-xs text-white/30 uppercase tracking-widest">Field</p>
+                      <p className="text-xs text-white/30 uppercase tracking-widest">Patient Stated</p>
+                      <p className="text-xs text-white/30 uppercase tracking-widest">On Record</p>
+                      <p className="text-xs text-white/30 uppercase tracking-widest text-right">Status</p>
+                    </div>
+                    {verifiedResult.identity.field_details.map((f) => (
+                      <div key={f.field} className={`grid grid-cols-4 px-6 py-3 items-center ${!f.match ? "bg-red-500/[0.04]" : ""}`}>
+                        <p className="text-xs font-semibold text-white/50 uppercase tracking-wide">{f.field}</p>
+                        <p className={`text-sm font-medium ${!f.match ? "text-red-300" : "text-white/70"}`}>{f.provided || "—"}</p>
+                        <p className="text-sm text-white/50">{f.stored || "—"}</p>
+                        <div className="flex justify-end">
+                          {f.match
+                            ? <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-semibold">✓ Match</span>
+                            : <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-semibold">✗ Mismatch</span>
+                          }
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}

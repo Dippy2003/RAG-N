@@ -83,12 +83,20 @@ class ReconcileResponse(BaseModel):
     guidelines_used: list[str] | None = None
 
 
+class FieldStatusOut(BaseModel):
+    field: str
+    provided: str
+    stored: str
+    match: bool
+
+
 class IdentityValidationOut(BaseModel):
     given_id: str
     is_correct: bool
     correct_id: str
     confidence: float
     mismatch_fields: list[str]
+    field_details: list[FieldStatusOut]
     explanation: str
     patient_name_found: str
 
@@ -98,6 +106,8 @@ class VerifiedReconcileRequest(BaseModel):
     patient_name: str
     dob: str = ""
     nic: str = ""
+    phone: str = ""
+    address: str = ""
 
 
 class VerifiedReconcileResponse(BaseModel):
@@ -282,6 +292,8 @@ def reconcile_verified(req: VerifiedReconcileRequest):
             req.patient_name,
             req.dob,
             req.nic,
+            req.phone,
+            req.address,
         )
         recon_future = pool.submit(run_agent, req.source_ref_id)
 
@@ -313,6 +325,15 @@ def reconcile_verified(req: VerifiedReconcileRequest):
             correct_id=identity_result.correct_id,
             confidence=identity_result.confidence,
             mismatch_fields=identity_result.mismatch_fields,
+            field_details=[
+                FieldStatusOut(
+                    field=f.field,
+                    provided=f.provided,
+                    stored=f.stored,
+                    match=f.match,
+                )
+                for f in identity_result.field_details
+            ],
             explanation=identity_result.explanation,
             patient_name_found=identity_result.patient_name_found,
         ),
