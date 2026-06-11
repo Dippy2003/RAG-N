@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-const API = "http://localhost:8000";
+const API = "http://localhost:8080";
 
 type Conflict = {
   conflict_type: string;
@@ -41,6 +41,9 @@ type ReconcileResponse = {
   overall_safe: boolean;
   adjudication_summary: string;
   escalation_ids: string[];
+  mode?: string;
+  turns_taken?: number | null;
+  guidelines_used?: string[] | null;
 };
 
 const CONFLICT_TYPE_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
@@ -72,6 +75,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ReconcileResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [agentMode, setAgentMode] = useState(false);
 
   async function handleReconcile(id?: string) {
     const target = (id ?? refId).trim();
@@ -80,7 +84,8 @@ export default function Home() {
     setResult(null);
     setError(null);
     try {
-      const res = await fetch(`${API}/reconcile/${target}`, { method: "POST" });
+      const endpoint = agentMode ? `${API}/reconcile-agent/${target}` : `${API}/reconcile/${target}`;
+      const res = await fetch(endpoint, { method: "POST" });
       if (!res.ok) {
         const body = await res.json();
         throw new Error(body.detail ?? `HTTP ${res.status}`);
@@ -138,6 +143,40 @@ export default function Home() {
 
         {/* Search card */}
         <div className="relative rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm p-6 mb-8 shadow-2xl">
+          {/* Mode toggle */}
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-xs text-white/40 font-medium uppercase tracking-widest">Mode</span>
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-white/[0.05] border border-white/[0.08]">
+              <button
+                onClick={() => setAgentMode(false)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  !agentMode
+                    ? "bg-white/10 text-white shadow"
+                    : "text-white/35 hover:text-white/60"
+                }`}
+              >
+                Pipeline
+              </button>
+              <button
+                onClick={() => setAgentMode(true)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                  agentMode
+                    ? "bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow"
+                    : "text-white/35 hover:text-white/60"
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                RAG + Agent
+              </button>
+            </div>
+          </div>
+
+          {agentMode && (
+            <div className="mb-4 px-4 py-3 rounded-xl bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300 leading-relaxed">
+              <span className="font-semibold">Agent mode:</span> Gemini drives a tool-use loop — retrieves clinical guidelines from the knowledge base (RAG) per conflict, then decides resolutions dynamically.
+            </div>
+          )}
+
           <div className="flex gap-3">
             <div className="flex-1 relative">
               <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/25 text-sm">
@@ -229,6 +268,32 @@ export default function Home() {
                 <StatCard label="Escalated" value={result.escalations.length} color="from-violet-500 to-purple-500" />
               </div>
             </div>
+
+            {/* Agent metadata */}
+            {result.mode === "agent" && (
+              <div className="rounded-2xl border border-violet-500/20 bg-violet-500/[0.06] px-6 py-4 flex flex-wrap gap-4 items-center">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+                  <span className="text-xs font-semibold text-violet-300 uppercase tracking-widest">RAG + Agent</span>
+                </div>
+                {result.turns_taken != null && (
+                  <div className="flex items-center gap-1.5 text-xs text-violet-300/70">
+                    <span className="font-mono bg-violet-500/20 px-2 py-0.5 rounded">{result.turns_taken}</span>
+                    <span>tool-use turns</span>
+                  </div>
+                )}
+                {result.guidelines_used && result.guidelines_used.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs text-violet-300/50">Guidelines retrieved:</span>
+                    {result.guidelines_used.map((g) => (
+                      <span key={g} className="text-xs font-mono px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300/80">
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* AI Summary */}
             <div className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.06] px-6 py-5">

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from action_executor import ExecutionReport, execute_actions
 from adjudicator import ReconciliationResult, reconcile
+from agent import AgentReport, run_agent
 from escalation_reviewer import EscalationReport, run_escalation_review
 
 app = FastAPI(
@@ -74,6 +75,9 @@ class ReconcileResponse(BaseModel):
     overall_safe: bool
     adjudication_summary: str
     escalation_ids: list[str]
+    mode: str = "pipeline"
+    turns_taken: int | None = None
+    guidelines_used: list[str] | None = None
 
 
 # ------------------------------------------------------------------ #
@@ -83,6 +87,55 @@ class ReconcileResponse(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "concord"}
+
+
+@app.post("/reconcile-agent/{source_ref_id}", response_model=ReconcileResponse)
+def reconcile_patient_agent(source_ref_id: str):
+    """
+    Agentic reconciliation using Gemini function calling + RAG.
+    The LLM drives the tool-use loop, retrieves medical guidelines per conflict,
+    and decides resolutions dynamically — not a fixed pipeline.
+    """
+    try:
+        report: AgentReport = run_agent(source_ref_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Agent failed: {e!s}")
+
+    all_guidelines: list[str] = []
+    for res in report.resolutions:
+        all_guidelines.extend(res.guidelines_used)
+
+    return ReconcileResponse(
+        source_ref_id=source_ref_id,
+        patient_name=report.patient_name,
+        cluster_id=report.cluster_id,
+        conflicts_detected=len(report.conflicts),
+        conflicts=[ConflictOut(**c) for c in report.conflicts],
+        resolutions=[
+            ResolutionOut(
+                conflict_type=r.conflict_type,
+                field=r.field,
+                action=r.action,
+                chosen_value=r.chosen_value,
+                rationale=r.rationale,
+                confidence=r.confidence,
+            )
+            for r in report.resolutions
+        ],
+        changes_applied=report.changes_applied,
+        escalations=[
+            EscalationOut(field=e.field, reason=e.reason, urgency=e.urgency)
+            for e in report.escalations
+        ],
+        overall_safe=report.overall_safe,
+        adjudication_summary=report.summary,
+        escalation_ids=report.escalation_ids,
+        mode="agent",
+        turns_taken=report.turns_taken,
+        guidelines_used=list(dict.fromkeys(all_guidelines)),
+    )
 
 
 @app.post("/reconcile/{source_ref_id}", response_model=ReconcileResponse)
