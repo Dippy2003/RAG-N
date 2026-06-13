@@ -1,0 +1,1482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Concord — Visual System Diagrams</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Segoe UI',Arial,sans-serif; background:#fff; color:#1a1a2e; font-size:13px; line-height:1.6; }
+
+/* ── Cover ── */
+.cover {
+  height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;
+  background:linear-gradient(160deg,#0f3460 0%,#16213e 60%,#0d0d1a 100%);
+  color:#fff; text-align:center; page-break-after:always;
+}
+.cover-logo { font-size:90px; font-weight:900; letter-spacing:12px; color:#e94560; text-shadow:0 0 40px rgba(233,69,96,.4); }
+.cover-sub  { font-size:18px; color:#a8b2d8; margin-top:8px; letter-spacing:3px; text-transform:uppercase; }
+.cover-line { width:100px; height:3px; background:linear-gradient(90deg,#e94560,#7b2fbe); margin:28px auto; border-radius:2px; }
+.cover-desc { font-size:14px; color:#ccd6f6; max-width:560px; line-height:2; }
+.cover-tags { margin-top:36px; display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+.cover-tag  { border:1px solid rgba(233,69,96,.5); color:#e94560; padding:4px 14px; border-radius:20px; font-size:11px; }
+.cover-foot { margin-top:60px; color:#4a5568; font-size:11px; }
+
+/* ── Pages ── */
+.page { padding:48px 56px; page-break-after:always; }
+.page:last-child { page-break-after:auto; }
+
+.sec-head {
+  display:flex; align-items:center; gap:16px; margin-bottom:32px;
+  padding:18px 24px; border-radius:10px;
+  background:linear-gradient(135deg,#0f3460,#16213e);
+}
+.sec-num  { background:#e94560; color:#fff; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:16px; flex-shrink:0; }
+.sec-head h1 { color:#fff; font-size:22px; }
+.sec-head p  { color:#a8b2d8; font-size:12px; margin-top:2px; }
+
+h2 { font-size:17px; color:#0f3460; margin:28px 0 12px; padding-left:10px; border-left:4px solid #e94560; }
+h3 { font-size:14px; color:#16213e; margin:18px 0 8px; font-weight:700; }
+p  { color:#444; margin-bottom:10px; font-size:13px; }
+
+/* ── Tables ── */
+table { width:100%; border-collapse:collapse; margin:12px 0; font-size:12px; }
+th { background:#0f3460; color:#fff; padding:8px 12px; text-align:left; font-size:11px; letter-spacing:.5px; }
+td { padding:7px 12px; border-bottom:1px solid #eee; vertical-align:top; }
+tr:nth-child(even) td { background:#f8f9ff; }
+
+/* ── Code ── */
+pre { background:#1e1e2e; color:#cdd6f4; padding:14px 18px; border-radius:8px; font-size:11px; font-family:Consolas,monospace; margin:10px 0; border-left:3px solid #e94560; line-height:1.8; white-space:pre-wrap; word-break:break-all; }
+code { background:#f0f0f0; color:#c0392b; padding:1px 5px; border-radius:3px; font-size:11px; font-family:Consolas,monospace; }
+
+/* ── Callout ── */
+.note { padding:12px 16px; border-radius:8px; margin:12px 0; font-size:12px; }
+.note.blue   { background:#e3f2fd; border-left:4px solid #1565c0; }
+.note.orange { background:#fff3e0; border-left:4px solid #e65100; }
+.note.green  { background:#e8f5e9; border-left:4px solid #2e7d32; }
+.note.red    { background:#fdecea; border-left:4px solid #c62828; }
+
+/* ══════════════════════════════════════
+   DIAGRAM BUILDING BLOCKS
+══════════════════════════════════════ */
+
+/* Generic diagram container */
+.diagram { margin:18px 0; }
+.diagram-title {
+  text-align:center; font-size:11px; text-transform:uppercase;
+  letter-spacing:2px; color:#888; margin-bottom:12px;
+}
+
+/* ── 1. Architecture layers ── */
+.arch-wrap { display:flex; flex-direction:column; gap:6px; margin:16px 0; }
+.arch-layer {
+  display:flex; align-items:stretch; border-radius:8px; overflow:hidden;
+  box-shadow:0 2px 8px rgba(0,0,0,.08);
+}
+.arch-label {
+  writing-mode:vertical-rl; text-orientation:mixed; transform:rotate(180deg);
+  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:2px;
+  padding:10px 8px; color:#fff; white-space:nowrap; min-width:32px; text-align:center;
+}
+.arch-layer.frontend .arch-label { background:#7b2fbe; }
+.arch-layer.router   .arch-label { background:#e94560; }
+.arch-layer.agents   .arch-label { background:#0f3460; }
+.arch-layer.rag      .arch-label { background:#2d6a4f; }
+.arch-layer.db       .arch-label { background:#1a5276; }
+
+.arch-content { flex:1; display:flex; gap:8px; padding:10px 12px; flex-wrap:wrap; }
+.arch-box {
+  padding:8px 14px; border-radius:6px; font-size:11px; font-weight:600;
+  white-space:nowrap; display:flex; align-items:center; gap:6px;
+}
+.arch-layer.frontend .arch-box { background:rgba(123,47,190,.1); border:1px solid rgba(123,47,190,.3); color:#6a1b9a; }
+.arch-layer.router   .arch-box { background:rgba(233,69,96,.1);  border:1px solid rgba(233,69,96,.3);  color:#c62828; }
+.arch-layer.agents   .arch-box { background:rgba(15,52,96,.1);   border:1px solid rgba(15,52,96,.3);   color:#0d47a1; }
+.arch-layer.rag      .arch-box { background:rgba(45,106,79,.1);  border:1px solid rgba(45,106,79,.3);  color:#1b5e20; }
+.arch-layer.db       .arch-box { background:rgba(26,82,118,.1);  border:1px solid rgba(26,82,118,.3);  color:#0d47a1; }
+
+/* ── 2. Sequence diagram ── */
+.seq { display:flex; flex-direction:column; gap:0; margin:16px 0; }
+.seq-actors { display:flex; margin-bottom:0; }
+.seq-actor {
+  flex:1; text-align:center; padding:8px 4px; font-size:11px; font-weight:700;
+  border-radius:6px 6px 0 0; color:#fff;
+}
+.seq-actor.a1 { background:#e94560; }
+.seq-actor.a2 { background:#0f3460; }
+.seq-actor.a3 { background:#2d6a4f; }
+.seq-actor.a4 { background:#7b2fbe; }
+.seq-actor.a5 { background:#c47a00; }
+.seq-actor.a6 { background:#1a5276; }
+
+.seq-body { display:flex; flex-direction:column; border:1px solid #e0e4f0; border-radius:0 0 8px 8px; overflow:hidden; }
+.seq-row  { display:flex; border-bottom:1px solid #f0f0f0; }
+.seq-row:last-child { border-bottom:none; }
+.seq-cell {
+  flex:1; padding:7px 6px; font-size:10.5px; text-align:center; position:relative;
+  border-right:1px dashed #e0e4f0; min-height:32px; display:flex; align-items:center; justify-content:center;
+}
+.seq-cell:last-child { border-right:none; }
+.seq-cell.active { background:#f0f4ff; }
+.seq-cell.msg {
+  background:none; font-style:italic; color:#555; font-size:10px;
+  border-right:none; flex:2; justify-content:flex-start; padding-left:8px;
+}
+.seq-arrow { font-size:14px; color:#e94560; margin-right:4px; }
+.seq-line { width:2px; height:100%; background:#e94560; position:absolute; left:50%; top:0; }
+
+/* ── 3. Flow boxes ── */
+.flow-h { display:flex; align-items:center; gap:0; margin:14px 0; flex-wrap:wrap; }
+.flow-v { display:flex; flex-direction:column; align-items:center; gap:0; margin:14px 0; }
+
+.fbox {
+  padding:10px 18px; border-radius:8px; font-size:11px; font-weight:700;
+  text-align:center; white-space:nowrap; min-width:100px;
+}
+.fbox.blue   { background:#0f3460; color:#fff; }
+.fbox.red    { background:#e94560; color:#fff; }
+.fbox.green  { background:#2d6a4f; color:#fff; }
+.fbox.purple { background:#7b2fbe; color:#fff; }
+.fbox.orange { background:#e65100; color:#fff; }
+.fbox.teal   { background:#006064; color:#fff; }
+.fbox.gray   { background:#546e7a; color:#fff; }
+.fbox.light  { background:#f0f4ff; color:#0f3460; border:2px solid #0f3460; }
+.fbox.light-red { background:#fff0f0; color:#c62828; border:2px solid #e94560; }
+.fbox.light-green { background:#f0fff4; color:#1b5e20; border:2px solid #2d6a4f; }
+
+.farr-h { font-size:20px; color:#888; padding:0 4px; align-self:center; }
+.farr-v { font-size:20px; color:#888; padding:2px 0; }
+.farr-label { font-size:10px; color:#888; text-align:center; margin:-4px 0 2px; }
+
+/* ── 4. Decision diamond ── */
+.diamond-wrap { display:flex; flex-direction:column; align-items:center; margin:8px 0; }
+.diamond {
+  width:120px; height:60px; background:#e94560; color:#fff;
+  clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);
+  display:flex; align-items:center; justify-content:center;
+  font-size:10px; font-weight:700; text-align:center; padding:10px;
+}
+
+/* ── 5. Agent card ── */
+.agent-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:16px 0; }
+.agent-card {
+  border-radius:10px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,.08);
+}
+.agent-card-head {
+  padding:12px 14px; color:#fff; font-weight:700; font-size:12px;
+  display:flex; align-items:center; gap:8px;
+}
+.agent-card-head .icon { font-size:20px; }
+.agent-card-body { padding:12px 14px; background:#f8f9ff; }
+.agent-card-body ul { padding-left:16px; }
+.agent-card-body li { font-size:11px; color:#444; margin-bottom:3px; }
+.agent-card-body .trigger { font-size:10px; color:#888; margin-top:6px; font-style:italic; }
+.agent-card-body .uses-rag { display:inline-block; background:#e8f5e9; color:#2e7d32; padding:2px 8px; border-radius:10px; font-size:10px; font-weight:700; margin-top:6px; }
+
+/* ── 6. RAG pipeline visual ── */
+.rag-pipe { display:flex; align-items:stretch; gap:0; margin:16px 0; border-radius:10px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,.1); }
+.rag-step { flex:1; padding:14px 10px; text-align:center; position:relative; }
+.rag-step::after {
+  content:'›'; position:absolute; right:-10px; top:50%; transform:translateY(-50%);
+  font-size:24px; color:#fff; z-index:2; font-weight:300;
+}
+.rag-step:last-child::after { display:none; }
+.rag-step .rs-num { font-size:10px; font-weight:700; opacity:.7; margin-bottom:4px; }
+.rag-step .rs-title { font-size:11px; font-weight:700; color:#fff; }
+.rag-step .rs-sub   { font-size:10px; color:rgba(255,255,255,.75); margin-top:4px; }
+.rag-step.s1 { background:#0f3460; }
+.rag-step.s2 { background:#1a5276; }
+.rag-step.s3 { background:#2d6a4f; }
+.rag-step.s4 { background:#7b2fbe; }
+.rag-step.s5 { background:#e94560; }
+
+/* ── 7. Threshold visual ── */
+.threshold-bar { margin:10px 0; }
+.tb-label { display:flex; justify-content:space-between; font-size:11px; margin-bottom:3px; }
+.tb-track { height:14px; background:#eee; border-radius:7px; overflow:hidden; position:relative; }
+.tb-fill  { height:100%; border-radius:7px; display:flex; align-items:center; justify-content:flex-end; padding-right:6px; }
+.tb-fill span { font-size:9px; color:#fff; font-weight:700; }
+
+/* ── 8. DB schema visual ── */
+.db-tables { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:16px 0; }
+.db-table  { border:2px solid #0f3460; border-radius:8px; overflow:hidden; }
+.db-table-head { background:#0f3460; color:#fff; padding:8px 12px; font-size:11px; font-weight:700; }
+.db-table-row  { padding:4px 12px; font-size:10px; border-bottom:1px solid #eee; display:flex; gap:8px; }
+.db-table-row:last-child { border-bottom:none; }
+.db-col-name { color:#0d47a1; font-weight:600; min-width:90px; }
+.db-col-type { color:#888; }
+.db-col-pk   { color:#e94560; font-size:9px; font-weight:700; }
+
+/* ── 9. Notification flow ── */
+.notif-flow { display:flex; gap:16px; align-items:flex-start; margin:16px 0; flex-wrap:wrap; }
+.nf-location {
+  flex:1; min-width:120px; border-radius:10px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,.1);
+}
+.nf-loc-head { padding:10px 14px; font-weight:700; font-size:12px; color:#fff; }
+.nf-loc-head.cln { background:#1565c0; }
+.nf-loc-head.lab { background:#2e7d32; }
+.nf-loc-head.phm { background:#6a1b9a; }
+.nf-loc-body { background:#f8f9ff; padding:10px 14px; }
+.nf-bell { font-size:20px; }
+.nf-badge { display:inline-block; background:#e94560; color:#fff; border-radius:50%; width:18px; height:18px; text-align:center; line-height:18px; font-size:10px; font-weight:700; margin-left:4px; }
+.nf-msg  { font-size:10px; color:#444; margin-top:6px; padding:6px 8px; background:#fff; border-radius:4px; border-left:3px solid #e94560; }
+
+.nf-center { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:0 8px; }
+.nf-conflict-box { background:#e94560; color:#fff; padding:8px 14px; border-radius:8px; font-size:10px; font-weight:700; text-align:center; }
+
+/* ── 10. Severity grid ── */
+.sev-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:16px 0; }
+.sev-card { border-radius:8px; overflow:hidden; text-align:center; }
+.sev-card-top { padding:16px 10px; color:#fff; }
+.sev-card-top .sev-weight { font-size:32px; font-weight:900; }
+.sev-card-top .sev-label  { font-size:11px; text-transform:uppercase; letter-spacing:1px; margin-top:4px; }
+.sev-card-bot { padding:10px; background:#f8f9ff; font-size:10px; color:#444; }
+.sev-card.c { --c:#c62828; }
+.sev-card.h { --c:#e65100; }
+.sev-card.m { --c:#f57f17; }
+.sev-card.l { --c:#2e7d32; }
+.sev-card .sev-card-top { background:var(--c); }
+
+/* ── 11. Intent routing visual ── */
+.intent-wrap { display:grid; grid-template-columns:200px 40px 1fr; gap:0; align-items:start; margin:16px 0; }
+.intent-input { background:#0f3460; color:#fff; padding:12px 16px; border-radius:8px; font-size:13px; font-weight:700; text-align:center; }
+.intent-arrow-col { display:flex; flex-direction:column; justify-content:space-around; align-items:center; padding:0 4px; }
+.intent-routes { display:flex; flex-direction:column; gap:6px; }
+.intent-route {
+  display:flex; align-items:center; gap:10px; padding:8px 12px;
+  border-radius:6px; font-size:11px;
+}
+.intent-keyword { color:#888; font-style:italic; min-width:200px; font-size:10px; }
+.intent-badge { padding:3px 10px; border-radius:12px; font-size:11px; font-weight:700; white-space:nowrap; }
+.intent-arrow { color:#888; }
+
+.badge-reg  { background:#e8f5e9; color:#1b5e20; border:1px solid #2e7d32; }
+.badge-up   { background:#e3f2fd; color:#0d47a1; border:1px solid #1565c0; }
+.badge-rx   { background:#fce4ec; color:#880e4f; border:1px solid #c2185b; }
+.badge-db   { background:#e0f7fa; color:#006064; border:1px solid #00838f; }
+.badge-q    { background:#ede7f6; color:#4a148c; border:1px solid #6a1b9a; }
+.badge-rec  { background:#fff3e0; color:#bf360c; border:1px solid #e64a19; }
+.badge-chat { background:#f5f5f5; color:#424242; border:1px solid #757575; }
+
+/* ── 12. Prescription flow ── */
+.rx-flow { display:flex; flex-direction:column; align-items:center; gap:0; margin:16px 0; }
+.rx-step { width:280px; padding:10px 16px; border-radius:8px; font-size:11px; font-weight:700; text-align:center; }
+.rx-v-arr { font-size:18px; color:#888; padding:2px 0; text-align:center; }
+.rx-branch { display:flex; gap:20px; align-items:flex-start; }
+.rx-branch-arm { display:flex; flex-direction:column; align-items:center; gap:4px; }
+.rx-h-arr  { font-size:18px; color:#888; padding:0 4px; align-self:center; }
+
+@media print {
+  body { font-size:12px; }
+  .page { padding:32px 40px; }
+  .agent-grid { grid-template-columns:repeat(2,1fr); }
+  .db-tables  { grid-template-columns:repeat(2,1fr); }
+}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ COVER ════════════════════ -->
+<div class="cover">
+  <div class="cover-logo">CONCORD</div>
+  <div class="cover-sub">Visual System Documentation</div>
+  <div class="cover-line"></div>
+  <div class="cover-desc">
+    Architecture diagrams, agent flows, sequence diagrams, and RAG pipeline visuals
+    for the Clinical Record Reconciliation System.
+  </div>
+  <div class="cover-tags">
+    <span class="cover-tag">Architecture</span>
+    <span class="cover-tag">Agent Flows</span>
+    <span class="cover-tag">Sequence Diagrams</span>
+    <span class="cover-tag">RAG Pipeline</span>
+    <span class="cover-tag">Database Schema</span>
+    <span class="cover-tag">Notification System</span>
+  </div>
+  <div class="cover-foot">Dipna Wijesi · June 2026 · Concord v1.0</div>
+</div>
+
+<!-- ════════════════════ PAGE 1 — SYSTEM ARCHITECTURE ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">1</div>
+    <div><h1>System Architecture</h1><p>Full layered view — from user chat to database</p></div>
+  </div>
+
+  <div class="diagram-title">Layered Architecture</div>
+  <div class="arch-wrap">
+
+    <div class="arch-layer frontend">
+      <div class="arch-label">Frontend</div>
+      <div class="arch-content">
+        <div class="arch-box">🖥️ Next.js 14 Chat UI</div>
+        <div class="arch-box">🔔 Notification Bell</div>
+        <div class="arch-box">👤 Role Selector (CLN/LAB/PHM)</div>
+        <div class="arch-box">⚠️ Destructive Confirm Modal</div>
+        <div class="arch-box">🃏 Action Cards</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;font-size:20px;color:#888;padding:4px 0;">↕ HTTP / REST</div>
+
+    <div class="arch-layer router">
+      <div class="arch-label">Router</div>
+      <div class="arch-content">
+        <div class="arch-box">🧭 Router Agent — Intent Classification</div>
+        <div class="arch-box">7 intents: register · update · prescribe · db_update · query · reconcile · chat</div>
+        <div class="arch-box">LLM: Groq Llama 3.3-70B</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;font-size:20px;color:#888;padding:4px 0;">↓ dispatched by intent</div>
+
+    <div class="arch-layer agents">
+      <div class="arch-label">Agents</div>
+      <div class="arch-content">
+        <div class="arch-box">📋 Registration Agent</div>
+        <div class="arch-box">🔄 Reconciliation Agent</div>
+        <div class="arch-box">💊 Prescription Agent</div>
+        <div class="arch-box">🗄️ Database Agent</div>
+        <div class="arch-box">🔍 Query Agent</div>
+        <div class="arch-box">🤖 LLM Interface (Gemini / Groq)</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;font-size:20px;color:#888;padding:4px 0;">↕ vector search</div>
+
+    <div class="arch-layer rag">
+      <div class="arch-label">RAG</div>
+      <div class="arch-content">
+        <div class="arch-box">📚 32 Clinical Guidelines</div>
+        <div class="arch-box">🔢 all-MiniLM-L6-v2 Embeddings</div>
+        <div class="arch-box">🏷️ Category Filter</div>
+        <div class="arch-box">⚖️ Severity Re-ranking</div>
+        <div class="arch-box">🎯 Threshold per Use-case</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;font-size:20px;color:#888;padding:4px 0;">↕ SQL + pgvector</div>
+
+    <div class="arch-layer db">
+      <div class="arch-label">Database</div>
+      <div class="arch-content">
+        <div class="arch-box">👤 source_records</div>
+        <div class="arch-box">🔗 patient_clusters</div>
+        <div class="arch-box">⚡ detected_conflicts</div>
+        <div class="arch-box">🚨 escalations</div>
+        <div class="arch-box">🔔 notifications</div>
+        <div class="arch-box">💊 prescriptions</div>
+        <div class="arch-box">📖 medical_guidelines</div>
+      </div>
+    </div>
+
+  </div>
+
+  <h2>Technology Stack</h2>
+  <table>
+    <tr><th>Layer</th><th>Technology</th><th>Role</th></tr>
+    <tr><td>Frontend</td><td>Next.js 14, TypeScript, Tailwind CSS</td><td>Chat UI, notifications, role selector</td></tr>
+    <tr><td>API</td><td>FastAPI + Uvicorn (Python 3.11)</td><td>REST endpoints, intent routing</td></tr>
+    <tr><td>LLM Primary</td><td>Gemini 2.0 Flash</td><td>Adjudication, conflict review</td></tr>
+    <tr><td>LLM Fallback</td><td>Groq Llama 3.3-70B → 3.1-8B</td><td>All agent tool loops + failover</td></tr>
+    <tr><td>Embeddings</td><td>all-MiniLM-L6-v2 (Sentence Transformers)</td><td>Patient matching + RAG search</td></tr>
+    <tr><td>Database</td><td>Supabase (PostgreSQL + pgvector)</td><td>All persistent data + vector search</td></tr>
+  </table>
+</div>
+
+<!-- ════════════════════ PAGE 2 — INTENT ROUTING ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">2</div>
+    <div><h1>Intent Routing Diagram</h1><p>How every chat message is classified and dispatched</p></div>
+  </div>
+
+  <div class="diagram-title">Router Agent — 7 Intents</div>
+
+  <div style="display:flex;gap:20px;align-items:flex-start;margin:16px 0;">
+    <!-- Input -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;">
+      <div class="fbox blue" style="width:160px;text-align:center;">💬 User Message</div>
+      <div class="farr-v">↓</div>
+      <div class="fbox red"  style="width:160px;text-align:center;">🧭 Router Agent<br><span style="font-size:9px;font-weight:400">Groq LLM Call</span></div>
+      <div class="farr-v">↓</div>
+      <div style="font-size:10px;color:#888;text-align:center;">classified intent</div>
+    </div>
+
+    <!-- Arrow -->
+    <div style="padding-top:60px;font-size:28px;color:#888;">→</div>
+
+    <!-- Routes -->
+    <div class="intent-routes" style="flex:1;">
+      <div class="intent-route" style="background:#e8f5e9;">
+        <span class="intent-badge badge-reg">register</span>
+        <span class="intent-keyword">"Add clinic patient:", "Register patient"</span>
+        <span>→ Registration Agent (create)</span>
+      </div>
+      <div class="intent-route" style="background:#e3f2fd;">
+        <span class="intent-badge badge-up">update</span>
+        <span class="intent-keyword">"Update CLN-001 name to…", "Change phone"</span>
+        <span>→ Registration Agent (update)</span>
+      </div>
+      <div class="intent-route" style="background:#fce4ec;">
+        <span class="intent-badge badge-rx">prescribe</span>
+        <span class="intent-keyword">"Prescribe ibuprofen for CLN-001"</span>
+        <span>→ Prescription Agent + RAG</span>
+      </div>
+      <div class="intent-route" style="background:#e0f7fa;">
+        <span class="intent-badge badge-db">db_update</span>
+        <span class="intent-keyword">"Add medication X", "Remove allergy Y", "Delete"</span>
+        <span>→ Database Agent (tool loop)</span>
+      </div>
+      <div class="intent-route" style="background:#ede7f6;">
+        <span class="intent-badge badge-q">query</span>
+        <span class="intent-keyword">"Show all patients", "List escalations", "Search"</span>
+        <span>→ Query Agent + LLM format</span>
+      </div>
+      <div class="intent-route" style="background:#fff3e0;">
+        <span class="intent-badge badge-rec">reconcile</span>
+        <span class="intent-keyword">"Compare CLN-001 and LAB-001", "Reconcile"</span>
+        <span>→ Reconciliation Agent + RAG</span>
+      </div>
+      <div class="intent-route" style="background:#f5f5f5;">
+        <span class="intent-badge badge-chat">chat</span>
+        <span class="intent-keyword">General clinical questions</span>
+        <span>→ LLM + RAG (all categories)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note orange">
+    <strong>⚠️ Critical Distinction — prescribe vs db_update</strong><br>
+    <code>"Add medication warfarin for CLN-001"</code> → <strong>db_update</strong> — just appends to array, NO interaction check<br>
+    <code>"Prescribe warfarin for CLN-001"</code> → <strong>prescribe</strong> — full RAG drug-safety check before issuing
+  </div>
+
+  <h2>Multi-Patient Extraction (Reconcile)</h2>
+  <div class="flow-h">
+    <div class="fbox blue">"Compare <b>CLN-001</b> and <b>LAB-001</b>"</div>
+    <div class="farr-h">→</div>
+    <div class="fbox red">re.findall(<br><span style="font-size:9px">r'\b(CLN|LAB|PHM)-\d+\b'</span>)</div>
+    <div class="farr-h">→</div>
+    <div class="fbox green">["CLN-001", "LAB-001"]</div>
+    <div class="farr-h">→</div>
+    <div class="fbox purple">Reconcile both records</div>
+  </div>
+</div>
+
+<!-- ════════════════════ PAGE 3 — AGENT OVERVIEW ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">3</div>
+    <div><h1>Agent Overview</h1><p>All 6 agents — purpose, tools, and RAG usage</p></div>
+  </div>
+
+  <div class="agent-grid">
+
+    <div class="agent-card">
+      <div class="agent-card-head" style="background:#e94560;">
+        <span class="icon">🧭</span> Router Agent
+      </div>
+      <div class="agent-card-body">
+        <ul>
+          <li>Classifies every chat message</li>
+          <li>Extracts structured parameters</li>
+          <li>Handles multi-patient ID extraction</li>
+          <li>Single LLM call per message</li>
+        </ul>
+        <div class="trigger">Trigger: every /chat request</div>
+      </div>
+    </div>
+
+    <div class="agent-card">
+      <div class="agent-card-head" style="background:#0f3460;">
+        <span class="icon">📋</span> Registration Agent
+      </div>
+      <div class="agent-card-body">
+        <ul>
+          <li>Register new patients (CLN/LAB/PHM)</li>
+          <li>Update demographic fields</li>
+          <li>Re-embed after identity changes</li>
+          <li>Find or create patient cluster</li>
+        </ul>
+        <div class="trigger">Trigger: intent = register | update</div>
+      </div>
+    </div>
+
+    <div class="agent-card">
+      <div class="agent-card-head" style="background:#2d6a4f;">
+        <span class="icon">🔄</span> Reconciliation Agent
+      </div>
+      <div class="agent-card-body">
+        <ul>
+          <li>Detects field conflicts across records</li>
+          <li>Calls LLM adjudication (Call 1)</li>
+          <li>Calls safety review (Call 2)</li>
+          <li>Notifies ALL cluster locations</li>
+        </ul>
+        <div class="trigger">Trigger: intent = reconcile</div>
+        <span class="uses-rag">✓ Uses RAG — conflict type mapped</span>
+      </div>
+    </div>
+
+    <div class="agent-card">
+      <div class="agent-card-head" style="background:#880e4f;">
+        <span class="icon">💊</span> Prescription Agent
+      </div>
+      <div class="agent-card-body">
+        <ul>
+          <li>Agentic tool loop (max 8 turns)</li>
+          <li>get_patient_record → check_interaction</li>
+          <li>issue_prescription OR block_prescription</li>
+          <li>Direct allergy name matching</li>
+          <li>Dedup: case-insensitive partial match</li>
+        </ul>
+        <div class="trigger">Trigger: intent = prescribe</div>
+        <span class="uses-rag">✓ Uses RAG — drug_interaction + allergy</span>
+      </div>
+    </div>
+
+    <div class="agent-card">
+      <div class="agent-card-head" style="background:#006064;">
+        <span class="icon">🗄️</span> Database Agent
+      </div>
+      <div class="agent-card-body">
+        <ul>
+          <li>Agentic tool loop (max 10 turns)</li>
+          <li>14 tools: update, add, remove, delete</li>
+          <li>Auto-resolves cluster_id from source_ref_id</li>
+          <li>Re-embeds on identity field changes</li>
+        </ul>
+        <div class="trigger">Trigger: intent = db_update</div>
+      </div>
+    </div>
+
+    <div class="agent-card">
+      <div class="agent-card-head" style="background:#4a148c;">
+        <span class="icon">🔍</span> Query Agent
+      </div>
+      <div class="agent-card-body">
+        <ul>
+          <li>Non-agentic pure DB queries</li>
+          <li>7 query types: patients, prescriptions, escalations, medications, allergies, notifications, search</li>
+          <li>LLM formats output with RAG context</li>
+        </ul>
+        <div class="trigger">Trigger: intent = query</div>
+        <span class="uses-rag">✓ Uses RAG — chat threshold (0.35)</span>
+      </div>
+    </div>
+
+  </div>
+
+  <h2>LLM Provider Failover</h2>
+  <div class="flow-h" style="justify-content:center;">
+    <div class="fbox blue" style="text-align:center;">Try<br><b>Gemini 2.0 Flash</b><br><span style="font-size:9px">Primary</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div class="farr-h">→</div>
+      <div style="font-size:9px;color:#e94560;">fails / quota</div>
+    </div>
+    <div class="fbox orange" style="text-align:center;">Fallback<br><b>Groq Llama 3.3-70B</b><br><span style="font-size:9px">Secondary</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+      <div class="farr-h">→</div>
+      <div style="font-size:9px;color:#e94560;">rate limited</div>
+    </div>
+    <div class="fbox gray" style="text-align:center;">Fallback<br><b>Groq Llama 3.1-8B</b><br><span style="font-size:9px">Tertiary</span></div>
+  </div>
+</div>
+
+<!-- ════════════════════ PAGE 4 — PRESCRIPTION FLOW ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">4</div>
+    <div><h1>Prescription Agent — Decision Flow</h1><p>From "Prescribe X for Y" to issued or blocked</p></div>
+  </div>
+
+  <div class="diagram-title">Prescription Agent Tool Loop (max 8 turns)</div>
+
+  <!-- Full flowchart -->
+  <div style="display:flex;justify-content:center;margin:16px 0;">
+  <div style="display:flex;flex-direction:column;align-items:center;gap:0;width:400px;">
+
+    <div class="fbox blue" style="width:100%;text-align:center;">💬 "Prescribe [drug] for [patient_id]"</div>
+    <div class="farr-v">↓</div>
+
+    <div class="fbox red" style="width:100%;text-align:center;">🧭 Router → intent: <b>prescribe</b><br><span style="font-size:9px">extracts: source_ref_id, drug, dosage</span></div>
+    <div class="farr-v">↓</div>
+
+    <!-- Turn 1 -->
+    <div style="width:100%;background:#e3f2fd;border:2px solid #1565c0;border-radius:8px;padding:10px 14px;text-align:center;">
+      <div style="font-size:10px;color:#888;margin-bottom:4px;">TURN 1</div>
+      <div style="font-size:12px;font-weight:700;color:#0d47a1;">🔧 get_patient_record(source_ref_id)</div>
+      <div style="font-size:10px;color:#555;margin-top:4px;">→ returns: medications[], allergies[], name, blood_type</div>
+    </div>
+    <div class="farr-v">↓</div>
+
+    <!-- Turn 2 -->
+    <div style="width:100%;background:#f3e5f5;border:2px solid #7b2fbe;border-radius:8px;padding:10px 14px;text-align:center;">
+      <div style="font-size:10px;color:#888;margin-bottom:4px;">TURN 2</div>
+      <div style="font-size:12px;font-weight:700;color:#6a1b9a;">🔧 check_interaction(new_drug, existing_meds, allergies)</div>
+      <div style="font-size:10px;color:#555;margin-top:4px;">→ RAG: retrieve_for_prescription() — drug_interaction + allergy_mismatch<br>→ threshold 0.30 · severity re-ranked</div>
+    </div>
+    <div class="farr-v">↓</div>
+
+    <!-- Decision -->
+    <div style="width:100%;background:#fff8e1;border:2px solid #f57f17;border-radius:8px;padding:10px 14px;text-align:center;">
+      <div style="font-size:11px;font-weight:700;color:#e65100;">🔀 safe_to_prescribe?</div>
+      <div style="font-size:10px;color:#555;margin-top:4px;">
+        = no interaction_guidelines found<br>AND no direct allergy_hit
+      </div>
+    </div>
+    <div style="display:flex;gap:40px;margin:4px 0;">
+      <div style="font-size:10px;color:#2e7d32;font-weight:700;">YES ✓</div>
+      <div style="font-size:10px;color:#c62828;font-weight:700;">NO ✗</div>
+    </div>
+    <div style="display:flex;gap:40px;width:100%;">
+
+      <!-- YES branch -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <div class="farr-v" style="color:#2e7d32;">↓</div>
+        <div style="width:100%;background:#e8f5e9;border:2px solid #2e7d32;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:10px;color:#888;margin-bottom:2px;">TURN 3</div>
+          <div style="font-size:11px;font-weight:700;color:#1b5e20;">🔧 issue_prescription()</div>
+          <div style="font-size:10px;color:#555;margin-top:3px;">adds drug to medications[]<br>logs in prescriptions table<br>status: active</div>
+        </div>
+        <div class="farr-v" style="color:#2e7d32;">↓</div>
+        <div style="width:100%;background:#2e7d32;border-radius:8px;padding:10px;text-align:center;color:#fff;">
+          <div style="font-size:12px;font-weight:700;">✅ ISSUED</div>
+          <div style="font-size:10px;margin-top:2px;">action: "issued"</div>
+        </div>
+      </div>
+
+      <!-- NO branch -->
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <div class="farr-v" style="color:#c62828;">↓</div>
+        <div style="width:100%;background:#fdecea;border:2px solid #c62828;border-radius:8px;padding:10px;text-align:center;">
+          <div style="font-size:10px;color:#888;margin-bottom:2px;">TURN 3</div>
+          <div style="font-size:11px;font-weight:700;color:#b71c1c;">🔧 block_prescription()</div>
+          <div style="font-size:10px;color:#555;margin-top:3px;">logs blocked attempt<br>status: blocked<br>includes reason + interactions</div>
+        </div>
+        <div class="farr-v" style="color:#c62828;">↓</div>
+        <div style="width:100%;background:#c62828;border-radius:8px;padding:10px;text-align:center;color:#fff;">
+          <div style="font-size:12px;font-weight:700;">🚫 BLOCKED</div>
+          <div style="font-size:10px;margin-top:2px;">action: "blocked"</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  </div>
+
+  <h2>Example: Prescribe Ibuprofen for Dengue Patient</h2>
+  <table>
+    <tr><th>Turn</th><th>Tool Called</th><th>Key Result</th></tr>
+    <tr><td>1</td><td>get_patient_record("CLN-001")</td><td>medications: ["paracetamol"], allergies: [], notes: "dengue fever"</td></tr>
+    <tr><td>2</td><td>check_interaction("ibuprofen", ["paracetamol"], [])</td><td>RAG retrieves LK-002 (CRITICAL: Dengue+NSAIDs). safe_to_prescribe: <b>false</b></td></tr>
+    <tr><td>3</td><td>block_prescription("CLN-001", "ibuprofen", "Dengue contraindication")</td><td>Blocked. Logged in prescriptions table with status=blocked.</td></tr>
+  </table>
+</div>
+
+<!-- ════════════════════ PAGE 5 — RECONCILIATION SEQUENCE ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">5</div>
+    <div><h1>Reconciliation Sequence Diagram</h1><p>Full pipeline from "Compare CLN-001 and LAB-001" to notifications</p></div>
+  </div>
+
+  <div class="diagram-title">Reconciliation Pipeline — Sequence</div>
+
+  <div class="seq">
+    <div class="seq-actors">
+      <div class="seq-actor a1">User Chat</div>
+      <div class="seq-actor a2">Router Agent</div>
+      <div class="seq-actor a3">Recon Agent</div>
+      <div class="seq-actor a4">RAG</div>
+      <div class="seq-actor a5">LLM (Gemini)</div>
+      <div class="seq-actor a6">Supabase</div>
+    </div>
+    <div class="seq-body">
+      <div class="seq-row">
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell"></div><div class="seq-cell"></div><div class="seq-cell"></div><div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell msg">"Compare CLN-001 and LAB-001"</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell"></div><div class="seq-cell"></div><div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell msg">Router classifies intent=reconcile, extracts ["CLN-001","LAB-001"]</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell msg">Fetch both patient records from source_records</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">←</span></div>
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"></div>
+        <div class="seq-cell msg">Records returned: blood_type A+ vs B+, medication conflict detected</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell msg">RAG: retrieve_for_conflict(each conflict, conflict_type) — threshold 0.25</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">←</span></div>
+        <div class="seq-cell active"></div>
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell msg">Guidelines returned: DT-001 (Blood type critical), DI-001 (Warfarin+Aspirin)</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell"></div>
+        <div class="seq-cell msg">LLM Call 1: adjudicate(conflicts + RAG guidelines)</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">←</span></div>
+        <div class="seq-cell"></div>
+        <div class="seq-cell active"></div>
+        <div class="seq-cell"></div>
+        <div class="seq-cell msg">AdjudicationResult: resolutions per conflict (accept_a/b/escalate)</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell"></div>
+        <div class="seq-cell msg">LLM Call 2: review_actions(resolutions) — safety check</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">←</span></div>
+        <div class="seq-cell"></div>
+        <div class="seq-cell active"></div>
+        <div class="seq-cell"></div>
+        <div class="seq-cell msg">EscalationReview: approved_actions, escalations, overall_safe</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell msg">Write: adjudications, escalations, detected_conflicts (resolved)</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell active"><span class="seq-arrow">→</span></div>
+        <div class="seq-cell msg">Create notification for CLN-001 AND LAB-001 AND PHM-001 (all cluster members)</div>
+      </div>
+      <div class="seq-row">
+        <div class="seq-cell active"><span class="seq-arrow">←</span></div>
+        <div class="seq-cell"></div>
+        <div class="seq-cell active"></div>
+        <div class="seq-cell"></div><div class="seq-cell"></div><div class="seq-cell"></div>
+        <div class="seq-cell msg">Response: reconciled — conflicts, resolutions, escalations summary</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note blue">
+    <strong>Cache Invalidation</strong> — The 5-minute reconciliation cache (<code>_recon_cache</code>) is cleared on any update, prescribe, or db_update so stale results are never returned.
+  </div>
+</div>
+
+<!-- ════════════════════ PAGE 6 — RAG PIPELINE ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">6</div>
+    <div><h1>RAG Pipeline</h1><p>How clinical guidelines are retrieved and injected into AI decisions</p></div>
+  </div>
+
+  <div class="diagram-title">RAG Retrieval Pipeline — Step by Step</div>
+
+  <div class="rag-pipe">
+    <div class="rag-step s1">
+      <div class="rs-num">01</div>
+      <div class="rs-title">Query</div>
+      <div class="rs-sub">Drug name + existing meds + allergies or conflict description</div>
+    </div>
+    <div class="rag-step s2">
+      <div class="rs-num">02</div>
+      <div class="rs-title">Embed</div>
+      <div class="rs-sub">all-MiniLM-L6-v2 → 384-dim vector</div>
+    </div>
+    <div class="rag-step s3">
+      <div class="rs-num">03</div>
+      <div class="rs-title">pgvector Search</div>
+      <div class="rs-sub">Cosine similarity vs medical_guidelines.embedding</div>
+    </div>
+    <div class="rag-step s4">
+      <div class="rs-num">04</div>
+      <div class="rs-title">Filter + Rerank</div>
+      <div class="rs-sub">Category filter → keyword filter → severity × similarity</div>
+    </div>
+    <div class="rag-step s5">
+      <div class="rs-num">05</div>
+      <div class="rs-title">Inject</div>
+      <div class="rs-sub">Top-k guidelines injected into LLM prompt</div>
+    </div>
+  </div>
+
+  <h2>Per-Use-Case Configuration</h2>
+  <table>
+    <tr><th>Agent</th><th>Function</th><th>Threshold</th><th>Category Filter</th><th>top_k</th></tr>
+    <tr><td>Prescription Agent</td><td>retrieve_for_prescription()</td><td>0.30</td><td>drug_interaction + allergy_mismatch</td><td>5+3 merged</td></tr>
+    <tr><td>Reconciliation Agent</td><td>retrieve_for_conflict()</td><td>0.25</td><td>mapped from conflict_type</td><td>4</td></tr>
+    <tr><td>Query Agent / Chat</td><td>retrieve_for_chat()</td><td>0.35</td><td>all categories</td><td>4</td></tr>
+    <tr><td>LLM Adjudicator (auto)</td><td>retrieve_for_conflict() × N</td><td>0.25</td><td>per conflict type</td><td>3 each</td></tr>
+  </table>
+
+  <h2>Severity Re-ranking</h2>
+  <div class="diagram-title">Score = Similarity × Severity Weight</div>
+  <div class="sev-grid">
+    <div class="sev-card c">
+      <div class="sev-card-top"><div class="sev-weight">2.0×</div><div class="sev-label">Critical</div></div>
+      <div class="sev-card-bot">0.60 similarity → score 1.20<br>Always surfaces first</div>
+    </div>
+    <div class="sev-card h">
+      <div class="sev-card-top"><div class="sev-weight">1.5×</div><div class="sev-label">High</div></div>
+      <div class="sev-card-bot">0.60 similarity → score 0.90<br>Ranks above medium</div>
+    </div>
+    <div class="sev-card m">
+      <div class="sev-card-top"><div class="sev-weight">1.0×</div><div class="sev-label">Medium</div></div>
+      <div class="sev-card-bot">Score = raw similarity<br>Default weight</div>
+    </div>
+    <div class="sev-card l">
+      <div class="sev-card-top"><div class="sev-weight">0.7×</div><div class="sev-label">Low</div></div>
+      <div class="sev-card-bot">0.60 similarity → score 0.42<br>Filtered out in practice</div>
+    </div>
+  </div>
+
+  <h2>Similarity Threshold Visual</h2>
+  <div class="threshold-bar">
+    <div class="tb-label"><span>Conflict resolution (wide net)</span><span>0.25</span></div>
+    <div class="tb-track"><div class="tb-fill" style="width:25%;background:#e94560;"><span>0.25</span></div></div>
+  </div>
+  <div class="threshold-bar">
+    <div class="tb-label"><span>Prescription safety (precision)</span><span>0.30</span></div>
+    <div class="tb-track"><div class="tb-fill" style="width:30%;background:#e65100;"><span>0.30</span></div></div>
+  </div>
+  <div class="threshold-bar">
+    <div class="tb-label"><span>General chat (confident only)</span><span>0.35</span></div>
+    <div class="tb-track"><div class="tb-fill" style="width:35%;background:#0f3460;"><span>0.35</span></div></div>
+  </div>
+  <p style="font-size:11px;color:#888;margin-top:4px;">Lower threshold = more results (wider net). Higher threshold = fewer but more relevant results.</p>
+
+  <h2>Hybrid Search (Keyword Pre-filter)</h2>
+  <div class="flow-h">
+    <div class="fbox blue" style="font-size:10px;">Vector results<br>(15 candidates)</div>
+    <div class="farr-h">→</div>
+    <div class="fbox red" style="font-size:10px;">Category filter<br>("drug_interaction")</div>
+    <div class="farr-h">→</div>
+    <div class="fbox purple" style="font-size:10px;">Keyword filter<br>("metformin" in tags)</div>
+    <div class="farr-h">→</div>
+    <div class="fbox green" style="font-size:10px;">Severity rerank<br>score = sim × weight</div>
+    <div class="farr-h">→</div>
+    <div class="fbox teal" style="font-size:10px;">Return top_k<br>(5 results)</div>
+  </div>
+</div>
+
+<!-- ════════════════════ PAGE 7 — KNOWLEDGE BASE ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">7</div>
+    <div><h1>Clinical Knowledge Base</h1><p>32 guidelines across 7 categories embedded in Supabase</p></div>
+  </div>
+
+  <!-- Visual map of guidelines -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0;">
+
+    <div>
+      <h3 style="color:#c62828;">💊 Drug Interactions (DI-001 to DI-012)</h3>
+      <table>
+        <tr><th>ID</th><th>Interaction</th><th>Sev</th></tr>
+        <tr><td>DI-001</td><td>Warfarin + Aspirin</td><td style="color:#c62828;font-weight:700">CRIT</td></tr>
+        <tr><td>DI-002</td><td>Penicillin cross-reactivity with Cephalosporins</td><td style="color:#e65100;font-weight:700">HIGH</td></tr>
+        <tr><td>DI-003</td><td>ACE Inhibitor + K-sparing Diuretics</td><td style="color:#e65100;font-weight:700">HIGH</td></tr>
+        <tr><td>DI-004</td><td>SSRI + MAOI → Serotonin Syndrome</td><td style="color:#c62828;font-weight:700">CRIT</td></tr>
+        <tr><td>DI-005</td><td>Metformin + IV Contrast Media</td><td style="color:#e65100;font-weight:700">HIGH</td></tr>
+        <tr><td>DI-006</td><td>Digoxin Toxicity (amiodarone/verapamil)</td><td style="color:#c62828;font-weight:700">CRIT</td></tr>
+        <tr><td>DI-007</td><td>Statins + Macrolides → Rhabdomyolysis</td><td style="color:#e65100;font-weight:700">HIGH</td></tr>
+        <tr><td>DI-008</td><td>Clopidogrel + Omeprazole (CYP2C19)</td><td style="color:#f57f17;font-weight:700">MED</td></tr>
+        <tr><td>DI-009</td><td>Opioids + Benzodiazepines → Respiratory failure</td><td style="color:#c62828;font-weight:700">CRIT</td></tr>
+        <tr><td>DI-010</td><td>Ciprofloxacin + Antacids/Iron</td><td style="color:#f57f17;font-weight:700">MED</td></tr>
+        <tr><td>DI-011</td><td>Insulin/Metformin + Alcohol</td><td style="color:#e65100;font-weight:700">HIGH</td></tr>
+        <tr><td>DI-012</td><td>Amoxicillin + Methotrexate</td><td style="color:#e65100;font-weight:700">HIGH</td></tr>
+      </table>
+    </div>
+
+    <div>
+      <h3 style="color:#1b5e20;">🇱🇰 Sri Lanka Specific (LK-001 to LK-006)</h3>
+      <table>
+        <tr><th>ID</th><th>Guideline</th><th>Sev</th></tr>
+        <tr><td>LK-001</td><td>Ayurvedic + Western Drug Interactions</td><td style="color:#e65100;font-weight:700">HIGH</td></tr>
+        <tr><td>LK-002</td><td>Dengue Fever — NSAIDs Contraindicated</td><td style="color:#c62828;font-weight:700">CRIT</td></tr>
+        <tr><td>LK-003</td><td>Malaria + G6PD Deficiency (primaquine)</td><td style="color:#c62828;font-weight:700">CRIT</td></tr>
+        <tr><td>LK-004</td><td>Sri Lanka National Diabetes Guidelines</td><td style="color:#f57f17;font-weight:700">MED</td></tr>
+        <tr><td>LK-005</td><td>NMRA Essential Medicines List</td><td style="color:#2e7d32;font-weight:700">LOW</td></tr>
+        <tr><td>LK-006</td><td>Ayurvedic Herbs Extended (neem, kohomba)</td><td style="color:#f57f17;font-weight:700">MED</td></tr>
+      </table>
+
+      <h3 style="color:#880e4f;margin-top:16px;">🤧 Allergy Protocols (AL-001 to AL-008)</h3>
+      <table>
+        <tr><th>ID</th><th>Protocol</th><th>Sev</th></tr>
+        <tr><td>AL-001</td><td>Penicillin Allergy Full Protocol</td><td style="color:#c62828;font-weight:700">CRIT</td></tr>
+        <tr><td>AL-002</td><td>Sulfonamide Allergy Cross-reactivity</td><td style="color:#e65100;font-weight:700">HIGH</td></tr>
+        <tr><td>AL-003</td><td>NSAID/Aspirin Hypersensitivity</td><td style="color:#e65100;font-weight:700">HIGH</td></tr>
+        <tr><td>AL-004</td><td>Contrast Media Allergy Premedication</td><td style="color:#f57f17;font-weight:700">MED</td></tr>
+        <tr><td>AL-005</td><td>Latex Allergy + Latex-Fruit Syndrome</td><td style="color:#f57f17;font-weight:700">MED</td></tr>
+        <tr><td>AL-006</td><td>Aspirin Allergy → Paracetamol Safety</td><td style="color:#2e7d32;font-weight:700">LOW</td></tr>
+        <tr><td>AL-007</td><td>Egg Allergy + Propofol/Vaccine Safety</td><td style="color:#f57f17;font-weight:700">MED</td></tr>
+        <tr><td>AL-008</td><td>Shellfish Allergy — Contrast Myth</td><td style="color:#2e7d32;font-weight:700">LOW</td></tr>
+      </table>
+    </div>
+
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px;">
+    <div>
+      <h3 style="color:#0d47a1;font-size:12px;">🔢 Data Integrity (DT-)</h3>
+      <table><tr><th>ID</th><th>Topic</th></tr>
+      <tr><td>DT-001</td><td>Blood Type Conflict</td></tr>
+      <tr><td>DT-002</td><td>Patient Identity Match</td></tr>
+      <tr><td>DT-003</td><td>Renal Dosing</td></tr>
+      <tr><td>DT-004</td><td>Hepatic Impairment</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 style="color:#4a148c;font-size:12px;">👶 Paediatric (PD-)</h3>
+      <table><tr><th>ID</th><th>Topic</th></tr>
+      <tr><td>PD-001</td><td>Weight-Based Dosing</td></tr>
+      <tr><td>PD-002</td><td>Age Restrictions (aspirin/codeine)</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 style="color:#880e4f;font-size:12px;">🤰 Pregnancy (PG-)</h3>
+      <table><tr><th>ID</th><th>Topic</th></tr>
+      <tr><td>PG-001</td><td>Cat D/X Contraindications</td></tr>
+      <tr><td>PG-002</td><td>Safe Medications</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3 style="color:#1a5276;font-size:12px;">🫘 Renal/Hepatic</h3>
+      <table><tr><th>ID</th><th>Topic</th></tr>
+      <tr><td>RN-001</td><td>eGFR-based dosing</td></tr>
+      <tr><td>HP-001</td><td>Child-Pugh dosing</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ PAGE 8 — NOTIFICATION SYSTEM ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">8</div>
+    <div><h1>Notification System</h1><p>Role-based filtering and cross-location conflict alerts</p></div>
+  </div>
+
+  <h2>How Cross-Location Notifications Work</h2>
+  <div class="diagram-title">After reconciliation — ALL locations in the cluster are notified</div>
+
+  <div class="notif-flow">
+
+    <div class="nf-location" style="max-width:150px;">
+      <div class="nf-loc-head cln">🏥 CLINIC</div>
+      <div class="nf-loc-body">
+        <div>🔔 <span class="nf-badge">1</span></div>
+        <div class="nf-msg">Conflict: Blood type mismatch with LAB-001</div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:20px;">
+      <div class="farr-h" style="font-size:28px;">←</div>
+    </div>
+
+    <div class="nf-center">
+      <div class="nf-conflict-box">⚡ CONFLICT<br>DETECTED<br><span style="font-size:9px;font-weight:400">cluster_id: abc-123</span></div>
+      <div style="font-size:10px;color:#888;text-align:center;margin-top:6px;">
+        Fetch ALL source_ref_ids<br>in same cluster<br>→ CLN-001, LAB-001, PHM-001
+      </div>
+      <div style="font-size:10px;color:#e94560;font-weight:700;">CREATE NOTIFICATION<br>for each one</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:20px;">
+      <div class="farr-h" style="font-size:28px;">→</div>
+    </div>
+
+    <div class="nf-location" style="max-width:150px;">
+      <div class="nf-loc-head lab">🧪 LAB</div>
+      <div class="nf-loc-body">
+        <div>🔔 <span class="nf-badge">1</span></div>
+        <div class="nf-msg">Conflict: Blood type mismatch with CLN-001</div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:20px;">
+      <div class="farr-h" style="font-size:28px;">→</div>
+    </div>
+
+    <div class="nf-location" style="max-width:150px;">
+      <div class="nf-loc-head phm">💊 PHARMACY</div>
+      <div class="nf-loc-body">
+        <div>🔔 <span class="nf-badge">1</span></div>
+        <div class="nf-msg">Conflict detected for shared patient cluster</div>
+      </div>
+    </div>
+
+  </div>
+
+  <h2>Role Selector — Notification Filtering</h2>
+  <table>
+    <tr><th>Role selected</th><th>API call</th><th>Filter applied (Supabase)</th><th>Result</th></tr>
+    <tr><td>ALL</td><td>GET /notifications</td><td>(no filter)</td><td>All notifications</td></tr>
+    <tr><td>CLN</td><td>GET /notifications?source=CLN</td><td>source_ref_id LIKE 'CLN%'</td><td>Only CLN-* notifications</td></tr>
+    <tr><td>LAB</td><td>GET /notifications?source=LAB</td><td>source_ref_id LIKE 'LAB%'</td><td>Only LAB-* notifications</td></tr>
+    <tr><td>PHM</td><td>GET /notifications?source=PHM</td><td>source_ref_id LIKE 'PHM%'</td><td>Only PHM-* notifications</td></tr>
+  </table>
+
+  <h2>Destructive Action Guard</h2>
+  <div class="flow-h" style="flex-wrap:wrap;">
+    <div class="fbox blue" style="font-size:11px;text-align:center;">User types<br>"delete CLN-001"</div>
+    <div class="farr-h">→</div>
+    <div class="fbox orange" style="font-size:11px;text-align:center;">isDestructive()<br>checks keywords</div>
+    <div class="farr-h">→</div>
+    <div class="fbox red" style="font-size:11px;text-align:center;">⚠️ Red modal<br>"Are you sure?"</div>
+    <div style="display:flex;gap:30px;margin-left:8px;">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <div style="font-size:10px;color:#2e7d32;font-weight:700;">Confirm</div>
+        <div class="farr-v" style="color:#2e7d32;">↓</div>
+        <div class="fbox green" style="font-size:10px;">Send to API</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <div style="font-size:10px;color:#c62828;font-weight:700;">Cancel</div>
+        <div class="farr-v" style="color:#c62828;">↓</div>
+        <div class="fbox light-red" style="font-size:10px;">Dismissed</div>
+      </div>
+    </div>
+  </div>
+
+  <pre style="margin-top:16px;">const DESTRUCTIVE_KEYWORDS = ["delete","remove record","drop","wipe","erase","clear all","purge"]
+
+function isDestructive(msg: string): boolean {
+  return DESTRUCTIVE_KEYWORDS.some(kw => msg.toLowerCase().includes(kw))
+}</pre>
+</div>
+
+<!-- ════════════════════ PAGE 9 — DATABASE SCHEMA VISUAL ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">9</div>
+    <div><h1>Database Schema</h1><p>All 7 Supabase tables with relationships</p></div>
+  </div>
+
+  <div class="db-tables">
+
+    <div class="db-table">
+      <div class="db-table-head">📋 source_records</div>
+      <div class="db-table-row"><span class="db-col-pk">PK</span><span class="db-col-name">id</span><span class="db-col-type">uuid</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">source_ref_id</span><span class="db-col-type">text  CLN-001</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">source</span><span class="db-col-type">text  CLINIC|LAB|PHARMACY</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">name, dob, nic</span><span class="db-col-type">text</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">phone, address</span><span class="db-col-type">text</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">blood_type</span><span class="db-col-type">text</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">medications</span><span class="db-col-type">text[]</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">allergies</span><span class="db-col-type">text[]</span></div>
+      <div class="db-table-row"><span class="db-col-pk">FK</span><span class="db-col-name">cluster_id</span><span class="db-col-type">uuid → clusters</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">embedding</span><span class="db-col-type">vector(384)</span></div>
+    </div>
+
+    <div class="db-table">
+      <div class="db-table-head">🔗 patient_clusters</div>
+      <div class="db-table-row"><span class="db-col-pk">PK</span><span class="db-col-name">id</span><span class="db-col-type">uuid</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">canonical_name</span><span class="db-col-type">text</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">status</span><span class="db-col-type">active|resolved|escalated</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">created_at</span><span class="db-col-type">timestamptz</span></div>
+      <div class="db-table-head" style="margin-top:12px;background:#2d6a4f;">⚡ detected_conflicts</div>
+      <div class="db-table-row"><span class="db-col-pk">PK</span><span class="db-col-name">id</span><span class="db-col-type">uuid</span></div>
+      <div class="db-table-row"><span class="db-col-pk">FK</span><span class="db-col-name">cluster_id</span><span class="db-col-type">uuid</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">conflict_type</span><span class="db-col-type">drug_interaction etc</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">field, value_a, value_b</span><span class="db-col-type">text</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">resolved</span><span class="db-col-type">bool</span></div>
+    </div>
+
+    <div class="db-table">
+      <div class="db-table-head">🚨 escalations</div>
+      <div class="db-table-row"><span class="db-col-pk">PK</span><span class="db-col-name">id</span><span class="db-col-type">uuid</span></div>
+      <div class="db-table-row"><span class="db-col-pk">FK</span><span class="db-col-name">cluster_id</span><span class="db-col-type">uuid</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">field, reason</span><span class="db-col-type">text</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">urgency</span><span class="db-col-type">routine|urgent|critical</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">status</span><span class="db-col-type">open|resolved</span></div>
+      <div class="db-table-head" style="margin-top:12px;background:#006064;">🔔 notifications</div>
+      <div class="db-table-row"><span class="db-col-pk">PK</span><span class="db-col-name">id</span><span class="db-col-type">uuid</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">source_ref_id</span><span class="db-col-type">text  CLN-001</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">message, type</span><span class="db-col-type">text</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">read</span><span class="db-col-type">bool</span></div>
+    </div>
+
+    <div class="db-table">
+      <div class="db-table-head" style="background:#880e4f;">💊 prescriptions</div>
+      <div class="db-table-row"><span class="db-col-pk">PK</span><span class="db-col-name">id</span><span class="db-col-type">uuid</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">source_ref_id</span><span class="db-col-type">text</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">drug, dosage</span><span class="db-col-type">text</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">status</span><span class="db-col-type">active|blocked|cancelled</span></div>
+      <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">notes</span><span class="db-col-type">text  (reason if blocked)</span></div>
+    </div>
+
+    <div class="db-table" style="grid-column:span 2;">
+      <div class="db-table-head" style="background:#4a148c;">📖 medical_guidelines (RAG knowledge base)</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;">
+        <div>
+          <div class="db-table-row"><span class="db-col-pk">PK</span><span class="db-col-name">id</span><span class="db-col-type">uuid</span></div>
+          <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">guideline_id</span><span class="db-col-type">text  DI-001, AL-001…</span></div>
+          <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">category</span><span class="db-col-type">drug_interaction|allergy_mismatch|data_integrity</span></div>
+          <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">title</span><span class="db-col-type">text</span></div>
+        </div>
+        <div>
+          <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">content</span><span class="db-col-type">text  (full guideline text)</span></div>
+          <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">severity</span><span class="db-col-type">critical|high|medium|low</span></div>
+          <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">tags</span><span class="db-col-type">text  (comma-separated drug names)</span></div>
+          <div class="db-table-row"><span class="db-col-pk"></span><span class="db-col-name">embedding</span><span class="db-col-type">vector(384) — pgvector</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <h2>Relationship Diagram</h2>
+  <div class="flow-h" style="flex-wrap:wrap;gap:0;">
+    <div class="fbox blue" style="font-size:11px;">source_records<br><span style="font-size:9px;">CLN-001, LAB-001</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;">
+      <div class="farr-h">→</div>
+      <div style="font-size:9px;color:#888;">cluster_id FK</div>
+    </div>
+    <div class="fbox green" style="font-size:11px;">patient_clusters<br><span style="font-size:9px;">groups same patient</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;">
+      <div class="farr-h">→</div>
+      <div style="font-size:9px;color:#888;">cluster_id FK</div>
+    </div>
+    <div class="fbox red" style="font-size:11px;">detected_conflicts<br><span style="font-size:9px;">per cluster</span></div>
+    <div style="display:flex;flex-direction:column;align-items:center;">
+      <div class="farr-h">→</div>
+      <div style="font-size:9px;color:#888;">cluster_id FK</div>
+    </div>
+    <div class="fbox orange" style="font-size:11px;">escalations<br><span style="font-size:9px;">needs human review</span></div>
+  </div>
+</div>
+
+<!-- ════════════════════ PAGE 10 — DATABASE AGENT ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">10</div>
+    <div><h1>Database Agent — Tool Map</h1><p>All 14 tools for full Supabase CRUD via chat</p></div>
+  </div>
+
+  <div class="diagram-title">Database Agent Tool Loop (max 10 turns)</div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:16px 0;">
+
+    <div style="background:#e3f2fd;border:2px solid #1565c0;border-radius:8px;padding:12px;">
+      <div style="font-weight:700;color:#0d47a1;font-size:12px;margin-bottom:8px;">🔍 READ</div>
+      <div style="font-size:11px;color:#333;">
+        <div style="padding:4px 0;border-bottom:1px solid #dde;">🔧 <b>find_patient</b><br><span style="color:#666;font-size:10px;">by source_ref_id or name</span></div>
+      </div>
+    </div>
+
+    <div style="background:#e8f5e9;border:2px solid #2e7d32;border-radius:8px;padding:12px;">
+      <div style="font-weight:700;color:#1b5e20;font-size:12px;margin-bottom:8px;">✏️ UPDATE</div>
+      <div style="font-size:11px;color:#333;">
+        <div style="padding:4px 0;border-bottom:1px solid #dde;">🔧 <b>update_source_record</b><br><span style="color:#666;font-size:10px;">any demographic field<br>→ re-embeds if identity field</span></div>
+        <div style="padding:4px 0;border-bottom:1px solid #dde;">🔧 <b>update_cluster</b><br><span style="color:#666;font-size:10px;">auto-resolves cluster_id</span></div>
+        <div style="padding:4px 0;border-bottom:1px solid #dde;">🔧 <b>update_prescription</b><br><span style="color:#666;font-size:10px;">status/dosage/notes</span></div>
+        <div style="padding:4px 0;border-bottom:1px solid #dde;">🔧 <b>resolve_escalation</b></div>
+        <div style="padding:4px 0;">🔧 <b>reopen_escalation</b></div>
+      </div>
+    </div>
+
+    <div style="background:#fff3e0;border:2px solid #e65100;border-radius:8px;padding:12px;">
+      <div style="font-weight:700;color:#bf360c;font-size:12px;margin-bottom:8px;">➕ ADD</div>
+      <div style="font-size:11px;color:#333;">
+        <div style="padding:4px 0;border-bottom:1px solid #dde;">🔧 <b>add_medication</b><br><span style="color:#666;font-size:10px;">appends to medications[]</span></div>
+        <div style="padding:4px 0;border-bottom:1px solid #dde;">🔧 <b>add_allergy</b><br><span style="color:#666;font-size:10px;">appends to allergies[]</span></div>
+      </div>
+    </div>
+
+    <div style="background:#fce4ec;border:2px solid #c2185b;border-radius:8px;padding:12px;">
+      <div style="font-weight:700;color:#880e4f;font-size:12px;margin-bottom:8px;">➖ REMOVE</div>
+      <div style="font-size:11px;color:#333;">
+        <div style="padding:4px 0;border-bottom:1px solid #dde;">🔧 <b>remove_medication</b><br><span style="color:#666;font-size:10px;">removes from medications[]</span></div>
+        <div style="padding:4px 0;">🔧 <b>remove_allergy</b><br><span style="color:#666;font-size:10px;">removes from allergies[]</span></div>
+      </div>
+    </div>
+
+    <div style="background:#fdecea;border:2px solid #b71c1c;border-radius:8px;padding:12px;">
+      <div style="font-weight:700;color:#b71c1c;font-size:12px;margin-bottom:8px;">🗑️ DELETE</div>
+      <div style="font-size:11px;color:#333;">
+        <div style="padding:4px 0;border-bottom:1px solid #dde;">🔧 <b>delete_patient</b><br><span style="color:#666;font-size:10px;">removes source_record row</span></div>
+        <div style="padding:4px 0;border-bottom:1px solid #dde;">🔧 <b>delete_prescription</b></div>
+        <div style="padding:4px 0;">🔧 <b>delete_notification</b></div>
+      </div>
+    </div>
+
+    <div style="background:#f5f5f5;border:2px solid #757575;border-radius:8px;padding:12px;">
+      <div style="font-weight:700;color:#424242;font-size:12px;margin-bottom:8px;">✅ SIGNAL</div>
+      <div style="font-size:11px;color:#333;">
+        <div style="padding:4px 0;">🔧 <b>done</b><br><span style="color:#666;font-size:10px;">signals loop completion<br>returns DbUpdateResult</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <h2>Auto Re-embedding on Identity Changes</h2>
+  <div class="flow-h">
+    <div class="fbox blue" style="font-size:11px;text-align:center;">update_source_record<br>(name / dob / nic / phone / address)</div>
+    <div class="farr-h">→</div>
+    <div class="fbox red" style="font-size:11px;text-align:center;">re_embed_record<br>(source_ref_id)</div>
+    <div class="farr-h">→</div>
+    <div class="fbox purple" style="font-size:11px;text-align:center;">Encode text →<br>384-dim vector</div>
+    <div class="farr-h">→</div>
+    <div class="fbox green" style="font-size:11px;text-align:center;">UPDATE embedding<br>in Supabase</div>
+  </div>
+  <p style="font-size:11px;color:#666;margin-top:4px;">This ensures patient matching stays accurate after demographic changes.</p>
+
+  <h2>Result Schema</h2>
+  <pre>@dataclass
+class DbUpdateResult:
+    action: str        # "db_updated" | "db_deleted" | "db_error"
+    message: str       # Human-readable: "Medication paracetamol added to CLN-001"
+    rows_affected: int
+    details: dict      # e.g. {"source_ref_id": "CLN-001", "drug": "paracetamol"}</pre>
+</div>
+
+<!-- ════════════════════ PAGE 11 — TESTING ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">11</div>
+    <div><h1>Testing Guide</h1><p>Setup, smoke tests, and end-to-end scenarios</p></div>
+  </div>
+
+  <h2>Setup Commands</h2>
+  <pre># 1. Start backend
+cd concord/backend
+uv run python knowledge_base.py          # seed 32 guidelines → Supabase (run ONCE)
+uv run uvicorn api:app --reload --port 8080
+
+# 2. Start frontend
+cd concord/frontend
+npm run dev                              # → http://localhost:3000
+
+# 3. Smoke test RAG
+uv run python rag_retriever.py           # prints 6 test queries with matched guidelines
+
+# 4. Smoke test LLM adjudication
+uv run python llm_interface.py           # runs 2 LLM calls, prints JSON output</pre>
+
+  <h2>Component Test Matrix</h2>
+  <table>
+    <tr><th>Component</th><th>Test Command / Action</th><th>Expected Result</th></tr>
+    <tr>
+      <td>RAG retriever</td>
+      <td><code>uv run python rag_retriever.py</code></td>
+      <td>6 queries matched — DI-001 for warfarin, LK-002 for dengue, etc.</td>
+    </tr>
+    <tr>
+      <td>LLM adjudication</td>
+      <td><code>uv run python llm_interface.py</code></td>
+      <td>2 JSON outputs: AdjudicationResult + EscalationReview</td>
+    </tr>
+    <tr>
+      <td>Prescription agent</td>
+      <td>Chat: "Prescribe ibuprofen for CLN-001"</td>
+      <td>Backend logs 3 tool calls, red BLOCKED card in UI</td>
+    </tr>
+    <tr>
+      <td>Query agent</td>
+      <td>Chat: "Show all patients"</td>
+      <td>Indigo card with formatted patient list</td>
+    </tr>
+    <tr>
+      <td>DB agent</td>
+      <td>Chat: "Add medication aspirin for CLN-001"</td>
+      <td>Cyan card: "Aspirin added to CLN-001 medications"</td>
+    </tr>
+    <tr>
+      <td>Reconciliation</td>
+      <td>Chat: "Compare CLN-001 and LAB-001"</td>
+      <td>Purple reconciled card, both locations get notifications</td>
+    </tr>
+    <tr>
+      <td>Role filter (CLN)</td>
+      <td>Click CLN pill in header</td>
+      <td>Bell shows only CLN-* notifications</td>
+    </tr>
+    <tr>
+      <td>Destructive guard</td>
+      <td>Type "delete CLN-001"</td>
+      <td>Red confirmation modal appears before API call</td>
+    </tr>
+    <tr>
+      <td>Notification delete</td>
+      <td>Click ✕ on a notification</td>
+      <td>DELETE /notifications/{id} called, badge count decreases</td>
+    </tr>
+  </table>
+
+  <h2>End-to-End Scenario Flow</h2>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0;">
+
+    <div style="border:2px solid #e94560;border-radius:8px;padding:14px;">
+      <div style="font-weight:700;color:#c62828;margin-bottom:8px;">🦟 Scenario A — Dengue + NSAIDs</div>
+      <ol style="padding-left:16px;font-size:12px;">
+        <li>Patient CLN-001 has "dengue fever" in medications</li>
+        <li>Chat: "Prescribe ibuprofen for CLN-001"</li>
+        <li>get_patient_record → sees dengue</li>
+        <li>check_interaction → RAG retrieves LK-002 (CRITICAL)</li>
+        <li>block_prescription called</li>
+        <li style="color:#c62828;font-weight:700;">Result: 🚫 BLOCKED</li>
+      </ol>
+    </div>
+
+    <div style="border:2px solid #0f3460;border-radius:8px;padding:14px;">
+      <div style="font-weight:700;color:#0d47a1;margin-bottom:8px;">🔔 Scenario B — Cross-Location Notification</div>
+      <ol style="padding-left:16px;font-size:12px;">
+        <li>CLN-001: blood_type A+ / LAB-001: blood_type B+</li>
+        <li>Both in same cluster (linked by matching)</li>
+        <li>Chat: "Compare CLN-001 and LAB-001"</li>
+        <li>data_integrity conflict detected → RAG fetches DT-001</li>
+        <li>Notifications created for CLN-001 AND LAB-001</li>
+        <li style="color:#0d47a1;font-weight:700;">Switch roles → both bells show the alert</li>
+      </ol>
+    </div>
+
+    <div style="border:2px solid #2e7d32;border-radius:8px;padding:14px;">
+      <div style="font-weight:700;color:#1b5e20;margin-bottom:8px;">🤧 Scenario C — Allergy Block</div>
+      <ol style="padding-left:16px;font-size:12px;">
+        <li>Chat: "Add allergy penicillin for CLN-001"</li>
+        <li>Chat: "Prescribe amoxicillin for CLN-001"</li>
+        <li>check_interaction: direct allergy_hit detected</li>
+        <li>RAG fetches AL-001 (Penicillin protocol)</li>
+        <li style="color:#c62828;font-weight:700;">Result: 🚫 BLOCKED — penicillin allergy</li>
+      </ol>
+    </div>
+
+    <div style="border:2px solid #7b2fbe;border-radius:8px;padding:14px;">
+      <div style="font-weight:700;color:#4a148c;margin-bottom:8px;">🗄️ Scenario D — Full DB Update</div>
+      <ol style="padding-left:16px;font-size:12px;">
+        <li>"Add medication paracetamol for CLN-001" → cyan card</li>
+        <li>"Remove medication paracetamol from CLN-001" → cyan card</li>
+        <li>"Update CLN-001 phone to 0771234567" → blue card + re-embed</li>
+        <li>"Resolve escalation for CLN-001" → escalation closed</li>
+        <li style="color:#006064;font-weight:700;">All operations confirmed in Supabase</li>
+      </ol>
+    </div>
+
+  </div>
+
+  <div class="note green">
+    <strong>All systems go checklist</strong><br>
+    ✓ knowledge_base.py prints 32 guidelines embedded<br>
+    ✓ Backend starts without errors on port 8080<br>
+    ✓ rag_retriever.py returns matched guidelines for dengue query<br>
+    ✓ llm_interface.py returns valid JSON with resolutions<br>
+    ✓ Frontend loads at localhost:3000 with role selector visible
+  </div>
+</div>
+
+<!-- ════════════════════ PAGE 12 — API REFERENCE ════════════════════ -->
+<div class="page">
+  <div class="sec-head">
+    <div class="sec-num">12</div>
+    <div><h1>API Reference</h1><p>All endpoints — request / response schemas</p></div>
+  </div>
+
+  <h2>POST /chat — Main Endpoint</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+    <div>
+      <h3>Request</h3>
+      <pre>{
+  "message": "Prescribe metformin for CLN-001",
+  "source_ref_id": "CLN-001"  // optional
+}</pre>
+    </div>
+    <div>
+      <h3>Response (issued)</h3>
+      <pre>{
+  "action": "issued",
+  "source_ref_id": "CLN-001",
+  "patient_name": "Perera Sunil",
+  "drug": "metformin",
+  "reason": "Metformin 500mg prescribed."
+}</pre>
+    </div>
+  </div>
+
+  <h2>All Response Action Types</h2>
+  <table>
+    <tr><th>action</th><th>Produced by</th><th>Frontend card color</th></tr>
+    <tr><td>registered</td><td>Registration Agent</td><td>Green</td></tr>
+    <tr><td>updated</td><td>Registration Agent</td><td>Blue</td></tr>
+    <tr><td>issued</td><td>Prescription Agent</td><td>Emerald</td></tr>
+    <tr><td>blocked</td><td>Prescription Agent</td><td>Red</td></tr>
+    <tr><td>reconciled</td><td>Reconciliation Agent</td><td>Purple</td></tr>
+    <tr><td>db_updated</td><td>Database Agent</td><td>Cyan</td></tr>
+    <tr><td>db_deleted</td><td>Database Agent</td><td>Orange</td></tr>
+    <tr><td>query_result</td><td>Query Agent + LLM</td><td>Indigo</td></tr>
+    <tr><td>chat</td><td>LLM (general)</td><td>Gray</td></tr>
+  </table>
+
+  <h2>Notification Endpoints</h2>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Params</th><th>Action</th></tr>
+    <tr><td>GET</td><td>/notifications</td><td>source=CLN|LAB|PHM, limit=20</td><td>List notifications (role-filtered)</td></tr>
+    <tr><td>DELETE</td><td>/notifications/{id}</td><td>id in path</td><td>Delete one notification</td></tr>
+    <tr><td>DELETE</td><td>/notifications</td><td>source=CLN</td><td>Clear all for a location</td></tr>
+    <tr><td>GET</td><td>/health</td><td></td><td>{ "status": "ok" }</td></tr>
+  </table>
+
+  <h2>Quick Reference — Chat Commands</h2>
+  <table>
+    <tr><th>What you type</th><th>Intent</th><th>What happens</th></tr>
+    <tr><td>"Show all patients"</td><td>query</td><td>Lists all source_records formatted by LLM</td></tr>
+    <tr><td>"List unresolved escalations"</td><td>query</td><td>Escalations with status=open</td></tr>
+    <tr><td>"Search patients with warfarin"</td><td>query</td><td>All records with warfarin in medications[]</td></tr>
+    <tr><td>"Prescribe X for CLN-001"</td><td>prescribe</td><td>Full drug safety check → issued or blocked</td></tr>
+    <tr><td>"Add medication X for CLN-001"</td><td>db_update</td><td>Appends to array, no safety check</td></tr>
+    <tr><td>"Remove allergy Y from CLN-001"</td><td>db_update</td><td>Removes from allergies array</td></tr>
+    <tr><td>"Update CLN-001 name to X"</td><td>update</td><td>Updates field + re-embeds if identity field</td></tr>
+    <tr><td>"Compare CLN-001 and LAB-001"</td><td>reconcile</td><td>Full conflict detection + LLM adjudication</td></tr>
+    <tr><td>"Resolve escalation for CLN-001"</td><td>db_update</td><td>Sets escalation status=resolved</td></tr>
+    <tr><td>"Add clinic patient: Name, DOB..."</td><td>register</td><td>Creates source_record + embedding + cluster</td></tr>
+  </table>
+
+  <!-- Footer -->
+  <div style="margin-top:40px;padding:24px;background:linear-gradient(135deg,#0f3460,#1a1a2e);border-radius:10px;color:#fff;text-align:center;">
+    <div style="font-size:32px;font-weight:900;letter-spacing:6px;color:#e94560;">CONCORD</div>
+    <div style="color:#a8b2d8;font-size:12px;margin-top:6px;">Clinical Record Reconciliation System — Sri Lanka</div>
+    <div style="margin-top:16px;display:flex;justify-content:center;gap:20px;flex-wrap:wrap;">
+      <span style="font-size:11px;color:#8892b0;">FastAPI + Python 3.11</span>
+      <span style="color:#e94560;">·</span>
+      <span style="font-size:11px;color:#8892b0;">Gemini 2.0 Flash + Groq Llama 3.3-70B</span>
+      <span style="color:#e94560;">·</span>
+      <span style="font-size:11px;color:#8892b0;">Supabase + pgvector</span>
+      <span style="color:#e94560;">·</span>
+      <span style="font-size:11px;color:#8892b0;">Next.js 14 + Tailwind</span>
+    </div>
+    <div style="margin-top:12px;color:#4a5568;font-size:11px;">Dipna Wijesi · sahanwijesi@gmail.com · June 2026</div>
+  </div>
+</div>
+
+</body>
+</html>
