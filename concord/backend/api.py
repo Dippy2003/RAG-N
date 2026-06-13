@@ -14,6 +14,8 @@ Then call it:
 import concurrent.futures
 import json
 import os
+import re as _re
+import time
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -27,6 +29,13 @@ from agent import AgentReport, run_agent
 from escalation_reviewer import EscalationReport, run_escalation_review
 from identity_agent import IdentityValidationResult, validate_identity
 from rag_retriever import format_guidelines_context, retrieve_guidelines
+from router_agent import route
+from registration_agent import register_patient_from_details, RegistrationResult
+from prescription_agent import process_prescription, PrescriptionResult
+from notification_agent import (
+    create_notification, get_notifications, mark_read,
+    notify_prescription_blocked, notify_escalation,
+)
 
 load_dotenv()
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
@@ -141,6 +150,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     guidelines_used: list[str] = []
+    action: str | None = None          # "registered" | "duplicate" | None
+    action_data: dict | None = None    # registration result details
 
 
 # ------------------------------------------------------------------ #
@@ -337,6 +348,96 @@ def _reconciliation_to_text(report: AgentReport) -> str:
     return "\n".join(lines)
 
 
+# ── Reconciliation cache (5-min TTL) ──────────────────────────────────────
+_recon_cache: dict[str, tuple[float, str]] = {}
+_CACHE_TTL = 300
+
+
+def _fast_reconcile_text(source_ref_id: str) -> str:
+    """
+    Pipeline-mode reconciliation (2 LLM calls, not 5-10).
+    Uses cache so the same patient isn't re-reconciled within 5 minutes.
+    """
+    cached = _recon_cache.get(source_ref_id)
+    if cached and (time.time() - cached[0]) < _CACHE_TTL:
+        return cached[1]
+
+    result: ReconciliationResult = reconcile(source_ref_id)
+    execution: ExecutionReport = execute_actions(result)
+    escalation: EscalationReport = run_escalation_review(result, execution)
+
+    lines = [
+        f"RECONCILIATION — {result.patient_name} ({source_ref_id})",
+        f"Overall safe: {escalation.overall_safe}",
+        f"Summary: {result.adjudication.summary}",
+    ]
+    if result.conflicts:
+        lines.append(f"\nConflicts ({len(result.conflicts)}):")
+        for c in result.conflicts:
+            lines.append(f"  [{c['conflict_type']}] {c['field']}: {c['source_a']}={c['value_a']} vs {c['source_b']}={c['value_b']}")
+            lines.append(f"    {c['description']}")
+    else:
+        lines.append("\nNo conflicts found — records are consistent across all sources.")
+    for r in result.adjudication.resolutions:
+        lines.append(f"  Resolution [{r.field}]: {r.action.value} — {r.rationale}")
+    for e in escalation.review.escalations:
+        lines.append(f"  Escalation [{e.urgency.upper()}] {e.field}: {e.reason}")
+
+    text = "\n".join(lines)
+    _recon_cache[source_ref_id] = (time.time(), text)
+
+    # Auto-notify all sources involved in conflicts
+    if result.conflicts:
+        # Collect the ACTUAL source_ref_ids from conflict records (e.g. "CLN-001", "LAB-002")
+        # source_a / source_b are the real source names like "clinic", "lab", "pharmacy"
+        # but we need the actual IDs — start with the queried patient and find linked records
+        involved_refs: set[str] = {source_ref_id}
+
+        # Pull all records in the same cluster so we can notify each location
+        try:
+            from supabase import create_client as _sc
+            _sb2 = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+            cluster_resp = _sb2.table("source_records").select("source_ref_id").eq("cluster_id", result.cluster_id).execute()
+            for row in (cluster_resp.data or []):
+                ref = row.get("source_ref_id", "")
+                prefix = ref.split("-")[0].upper()
+                if prefix in ("CLN", "LAB", "PHM"):
+                    involved_refs.add(ref)
+        except Exception:
+            pass
+
+        conflict_summary = "; ".join(
+            f"{c['field']} ({c['conflict_type']})" for c in result.conflicts[:5]
+        )
+        urgency = "critical" if not escalation.overall_safe else "medium"
+
+        for notif_ref in involved_refs:
+            create_notification(
+                source_ref_id=notif_ref,
+                patient_name=result.patient_name,
+                title=f"Conflict Detected — {len(result.conflicts)} issue(s)",
+                message=(
+                    f"Patient: {result.patient_name} ({source_ref_id})\n"
+                    f"Conflicts: {conflict_summary}\n"
+                    f"Overall safe: {escalation.overall_safe}"
+                ),
+                urgency=urgency,
+                notification_type="escalation",
+            )
+
+    # Also notify for each escalation
+    for e in escalation.review.escalations:
+        notify_escalation(
+            source_ref_id=source_ref_id,
+            patient_name=result.patient_name,
+            field=e.field,
+            reason=e.reason,
+            urgency=e.urgency,
+        )
+
+    return text
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     """
@@ -345,6 +446,90 @@ def chat(req: ChatRequest):
     """
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
+
+    # ── Router: classify intent first ──────────────────────────────────────
+    route_result = route(req.message)
+    intent = route_result.get("intent", "chat")
+    params = route_result.get("params", {})
+
+    if intent in ("register", "update"):
+        # For update: find the patient by name if no source_ref_id given
+        if intent == "update" and not params.get("source_ref_id") and params.get("name"):
+            from supabase import create_client as _sc
+            _sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+            found = _sb.table("source_records").select("source_ref_id, name").ilike("name", f"%{params['name']}%").limit(1).execute()
+            if found.data:
+                params["source_ref_id"] = found.data[0]["source_ref_id"]
+
+        try:
+            reg: RegistrationResult = register_patient_from_details(params)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Registration failed: {e!s}")
+
+        if reg.action == "registered":
+            reply = (
+                f"Patient registered successfully!\n\n"
+                f"**Name:** {reg.patient_name}\n"
+                f"**New ID:** {reg.source_ref_id}\n\n"
+                f"You can now ask about this patient using their ID."
+            )
+            return ChatResponse(reply=reply, action="registered", action_data={"source_ref_id": reg.source_ref_id, "patient_name": reg.patient_name})
+
+        if reg.action == "updated":
+            reply = f"Record updated successfully for **{reg.patient_name}** ({reg.source_ref_id})."
+            return ChatResponse(reply=reply, action="updated", action_data={"source_ref_id": reg.source_ref_id, "patient_name": reg.patient_name})
+
+        if reg.action == "duplicate":
+            reply = (
+                f"A patient with these details already exists.\n"
+                f"**Existing ID:** {reg.existing_id}\n"
+                f"No duplicate was created. If you want to update that record, say \"update {reg.existing_id}\"."
+            )
+            return ChatResponse(reply=reply, action="duplicate", action_data={"existing_id": reg.existing_id, "patient_name": reg.patient_name})
+
+        raise HTTPException(status_code=500, detail=reg.message)
+
+    if intent == "prescribe":
+        sid = params.get("source_ref_id", "").strip()
+        drug = params.get("drug", "").strip()
+        if not sid or not drug:
+            return ChatResponse(reply="Please specify the patient ID and the drug name. Example: 'Prescribe aspirin 100mg daily for CLN-001'")
+        try:
+            rx: PrescriptionResult = process_prescription(
+                source_ref_id=sid,
+                drug=drug,
+                dosage=params.get("dosage", ""),
+                notes=params.get("notes", ""),
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Prescription failed: {e!s}")
+
+        if rx.action == "issued":
+            # Auto-notify (low urgency — successful prescription)
+            create_notification(
+                source_ref_id=rx.source_ref_id, patient_name=rx.patient_name,
+                title=f"Prescription Issued — {rx.drug}",
+                message=rx.reason, urgency="low", notification_type="prescription_issued",
+            )
+            reply = f"Prescription issued successfully.\n\n**Drug:** {rx.drug}\n**Patient:** {rx.patient_name} ({rx.source_ref_id})\n\n{rx.reason}"
+            return ChatResponse(reply=reply, action="prescription_issued",
+                                action_data={"source_ref_id": rx.source_ref_id, "patient_name": rx.patient_name, "drug": rx.drug})
+
+        if rx.action == "blocked":
+            notify_prescription_blocked(
+                source_ref_id=rx.source_ref_id, patient_name=rx.patient_name,
+                drug=rx.drug, reason=rx.reason, interactions=rx.interactions_found,
+            )
+            reply = (
+                f"Prescription BLOCKED — {rx.drug} cannot be safely prescribed.\n\n"
+                f"**Reason:** {rx.reason}\n"
+                f"**Interactions:** {', '.join(rx.interactions_found) if rx.interactions_found else 'allergy conflict'}\n\n"
+                f"A notification has been sent to the clinical team."
+            )
+            return ChatResponse(reply=reply, action="prescription_blocked",
+                                action_data={"source_ref_id": rx.source_ref_id, "patient_name": rx.patient_name, "drug": rx.drug})
+
+        raise HTTPException(status_code=500, detail=rx.reason)
 
     guidelines = retrieve_guidelines(req.message, top_k=4, threshold=0.25)
     context_block = format_guidelines_context(guidelines)
@@ -379,120 +564,104 @@ def chat(req: ChatRequest):
         messages.append({"role": m.role, "content": m.content})
     messages.append({"role": "user", "content": req.message})
 
-    # If the message contains a patient ID, pre-fetch the record and inject it
-    # so the LLM always has real data without needing to call a tool itself.
-    import re as _re
     _id_match = _re.search(r'\b(CLN|LAB|PHM)-\d+\b', req.message, _re.IGNORECASE)
-    if _id_match and not patient_context:
+    _conflict_keywords = {"conflict", "conflicts", "interaction", "drug", "safe", "safety",
+                          "escalat", "reconcil", "medic", "allerg", "risk", "danger"}
+    _msg_lower = req.message.lower()
+    _is_conflict_query = any(k in _msg_lower for k in _conflict_keywords)
+
+    # Fast path: patient ID + conflict query → run pipeline reconciliation directly
+    # This skips the slow agentic tool-call loop entirely
+    if _id_match and _is_conflict_query and not patient_context:
+        sid = _id_match.group(0).upper()
+        try:
+            recon_text = _fast_reconcile_text(sid)
+            messages.append({
+                "role": "system",
+                "content": f"RECONCILIATION RESULT FOR {sid} (from database):\n{recon_text}",
+            })
+        except Exception:
+            # Reconciliation failed (e.g. no embedding for new patient) — fall back to raw record
+            try:
+                from supabase import create_client as _sc
+                _sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+                resp = (
+                    _sb.table("source_records")
+                    .select("source_ref_id, source, name, dob, nic, phone, address, medications, allergies, blood_type")
+                    .eq("source_ref_id", sid)
+                    .execute()
+                )
+                if resp.data:
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            f"PATIENT RECORD FOR {sid}:\n{json.dumps(resp.data[0], indent=2, default=str)}\n\n"
+                            f"Note: This patient was recently added and has not been cross-referenced with other sources yet, so no conflict analysis is available."
+                        ),
+                    })
+            except Exception:
+                pass
+
+    # Simple patient info path: patient ID, no conflict query → inject raw record
+    elif _id_match and not patient_context:
         sid = _id_match.group(0).upper()
         try:
             from supabase import create_client as _sc
             _sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
             resp = (
                 _sb.table("source_records")
-                .select("source_ref_id, source, name, dob, nic, phone, address, medications, allergies, blood_type, diagnoses")
+                .select("source_ref_id, source, name, dob, nic, phone, address, medications, allergies, blood_type")
                 .eq("source_ref_id", sid)
                 .execute()
             )
             if resp.data:
-                injected = json.dumps(resp.data[0], indent=2, default=str)
                 messages.append({
                     "role": "system",
-                    "content": f"PATIENT RECORD FOR {sid} (fetched directly from database — use this data to answer):\n{injected}"
+                    "content": f"PATIENT RECORD FOR {sid}:\n{json.dumps(resp.data[0], indent=2, default=str)}",
                 })
         except Exception:
             pass
 
-    # Agentic loop — LLM can still call tools for reconciliation/deeper queries
-    for _ in range(5):
-        try:
-            response = client.chat.completions.create(
-                model=GROQ_MODEL,
-                messages=messages,
-                tools=_CHAT_TOOLS,
-                tool_choice="auto",
-                temperature=0.3,
-                max_tokens=1024,
-            )
-        except Exception as e:
-            if "rate_limit_exceeded" in str(e) or "429" in str(e):
-                try:
-                    response = client.chat.completions.create(
-                        model=GROQ_FALLBACK_MODEL,
-                        messages=messages,
-                        tools=_CHAT_TOOLS,
-                        tool_choice="auto",
-                        temperature=0.3,
-                        max_tokens=1024,
-                    )
-                except Exception as e2:
-                    raise HTTPException(status_code=429, detail=f"Rate limit on both models. Wait ~15 min and try again. ({e2!s})")
-            else:
-                raise HTTPException(status_code=500, detail=f"LLM error: {e!s}")
-
-        msg = response.choices[0].message
-        tool_calls = msg.tool_calls or []
-
-        if not tool_calls:
-            return ChatResponse(reply=msg.content or "", guidelines_used=guideline_ids)
-
-        messages.append(msg)
-        for tc in tool_calls:
-            try:
-                args = json.loads(tc.function.arguments)
-            except json.JSONDecodeError:
-                args = {}
-
-            if tc.function.name == "lookup_patient_record":
-                sid = args.get("source_ref_id", "").strip()
-                try:
-                    from supabase import create_client as _sc
-                    _sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
-                    resp = (
-                        _sb.table("source_records")
-                        .select("source_ref_id, source, name, dob, nic, phone, address, medications, allergies, blood_type, diagnoses")
-                        .eq("source_ref_id", sid)
-                        .execute()
-                    )
-                    if resp.data:
-                        tool_result = json.dumps(resp.data[0], indent=2, default=str)
-                    else:
-                        tool_result = f"No record found for source_ref_id: {sid}"
-                except Exception as e:
-                    tool_result = f"Lookup failed: {e}"
-
-            elif tc.function.name == "reconcile_patient":
-                sid = args.get("source_ref_id", "").strip()
-                try:
-                    report: AgentReport = run_agent(sid)
-                    tool_result = _reconciliation_to_text(report)
-                    # Collect any new guideline IDs from the reconciliation
-                    for r in report.resolutions:
-                        for g in r.guidelines_used:
-                            if g not in guideline_ids:
-                                guideline_ids.append(g)
-                except Exception as e:
-                    tool_result = f"Reconciliation failed for {sid}: {e}"
-            else:
-                tool_result = "Unknown tool."
-
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": tool_result,
-            })
-
-    # Fallback — get final answer after tool results
-    try:
-        final = client.chat.completions.create(
-            model=GROQ_MODEL,
+    # Single LLM call — no tool loop needed since data is already injected
+    def _llm_call(model: str):
+        return client.chat.completions.create(
+            model=model,
             messages=messages,
             temperature=0.3,
             max_tokens=1024,
         )
-        return ChatResponse(reply=final.choices[0].message.content or "", guidelines_used=guideline_ids)
+
+    try:
+        response = _llm_call(GROQ_MODEL)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LLM error: {e!s}")
+        if "rate_limit_exceeded" in str(e) or "429" in str(e):
+            try:
+                response = _llm_call(GROQ_FALLBACK_MODEL)
+            except Exception as e2:
+                raise HTTPException(status_code=429, detail=f"Rate limit exceeded. Wait ~15 min. ({e2!s})")
+        else:
+            raise HTTPException(status_code=500, detail=f"LLM error: {e!s}")
+
+    return ChatResponse(reply=response.choices[0].message.content or "", guidelines_used=guideline_ids)
+
+
+@app.get("/notifications")
+def list_notifications(unread_only: bool = False, limit: int = 20, source: str = ""):
+    """
+    Fetch notifications. Optionally filter by source prefix.
+    source = "CLN" | "LAB" | "PHM" | "" (all)
+    """
+    notifications = get_notifications(unread_only=unread_only, limit=limit)
+    if source:
+        prefix = source.upper()
+        notifications = [n for n in notifications if n.get("source_ref_id", "").upper().startswith(prefix)]
+    return notifications
+
+
+@app.post("/notifications/read")
+def read_notifications(ids: list[str]):
+    mark_read(ids)
+    return {"ok": True}
 
 
 def _build_reconcile_response(report: AgentReport) -> ReconcileResponse:
@@ -577,6 +746,16 @@ def reconcile_verified(req: VerifiedReconcileRequest):
             recon_report = run_agent(correct_id)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Re-reconciliation failed: {e!s}")
+
+    # Auto-create notifications for escalations
+    for e in recon_report.escalations:
+        notify_escalation(
+            source_ref_id=recon_report.source_ref_id,
+            patient_name=recon_report.patient_name,
+            field=e.field,
+            reason=e.reason,
+            urgency=e.urgency,
+        )
 
     return VerifiedReconcileResponse(
         identity=IdentityValidationOut(

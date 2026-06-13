@@ -4,172 +4,149 @@ import { useEffect, useRef, useState } from "react";
 
 const API = "http://localhost:8080";
 
-type Conflict = {
-  conflict_type: string;
-  field: string;
-  source_a: string;
-  value_a: string;
-  source_b: string;
-  value_b: string;
-  description: string;
-};
-
-type Resolution = {
-  conflict_type: string;
-  field: string;
-  action: string;
-  chosen_value: string | null;
-  rationale: string;
-  confidence: number;
-};
-
-type Escalation = {
-  field: string;
-  reason: string;
-  urgency: string;
-};
-
-type FieldStatus = {
-  field: string;
-  provided: string;
-  stored: string;
-  match: boolean;
-};
-
-type IdentityValidation = {
-  given_id: string;
-  is_correct: boolean;
-  correct_id: string;
-  confidence: number;
-  mismatch_fields: string[];
-  field_details: FieldStatus[];
-  explanation: string;
-  patient_name_found: string;
-};
-
-type VerifiedResponse = {
-  identity: IdentityValidation;
-  reconciliation: ReconcileResponse;
-  id_was_corrected: boolean;
-};
-
-type ReconcileResponse = {
+type Notification = {
+  id: string;
   source_ref_id: string;
   patient_name: string;
-  cluster_id: string;
-  conflicts_detected: number;
-  conflicts: Conflict[];
-  resolutions: Resolution[];
-  changes_applied: number;
-  escalations: Escalation[];
-  overall_safe: boolean;
-  adjudication_summary: string;
-  escalation_ids: string[];
-  mode?: string;
-  turns_taken?: number | null;
-  guidelines_used?: string[] | null;
+  title: string;
+  message: string;
+  urgency: string;
+  notification_type: string;
+  is_read: boolean;
+  created_at: string;
 };
-
-const CONFLICT_TYPE_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
-  drug_interaction:  { bg: "bg-red-500/10",    text: "text-red-400",    dot: "bg-red-400" },
-  allergy_mismatch:  { bg: "bg-amber-500/10",  text: "text-amber-400",  dot: "bg-amber-400" },
-  data_integrity:    { bg: "bg-purple-500/10", text: "text-purple-400", dot: "bg-purple-400" },
-};
-
-const ACTION_STYLE: Record<string, { label: string; cls: string }> = {
-  escalate:         { label: "Escalated",      cls: "bg-orange-500/20 text-orange-300 border border-orange-500/30" },
-  flag_critical:    { label: "Critical Flag",  cls: "bg-red-500/20 text-red-300 border border-red-500/30" },
-  accept_a:         { label: "Accepted A",     cls: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" },
-  accept_b:         { label: "Accepted B",     cls: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" },
-};
-
-const URGENCY_STYLE: Record<string, string> = {
-  critical: "border-red-500/40 bg-red-500/10 text-red-300",
-  high:     "border-orange-500/40 bg-orange-500/10 text-orange-300",
-  urgent:   "border-orange-500/40 bg-orange-500/10 text-orange-300",
-  medium:   "border-yellow-500/40 bg-yellow-500/10 text-yellow-300",
-  low:      "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
-  routine:  "border-blue-500/40 bg-blue-500/10 text-blue-300",
-};
-
-const SAMPLE_IDS = ["CLN-001", "CLN-002", "CLN-003", "LAB-001", "PHM-001"];
-
-type Mode = "pipeline" | "agent" | "verified";
 
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   guidelines?: string[];
+  action?: string;
+  action_data?: { source_ref_id?: string; patient_name?: string; existing_id?: string };
 };
 
+const STARTERS = [
+  "Tell me about patient CLN-001",
+  "What conflicts does CLN-001 have?",
+  "What medications does PHM-001 have?",
+  "What is the warfarin + aspirin risk?",
+  "Add new patient: Kasun Silva, DOB 1990-05-14, medications: metformin",
+];
+
+function OrbitSpinner() {
+  return (
+    <div className="relative w-10 h-10">
+      {[...Array(8)].map((_, i) => (
+        <span
+          key={i}
+          className="absolute w-2.5 h-2.5 rounded-full"
+          style={{
+            background: `hsl(${260 + i * 15}, 80%, ${55 + i * 3}%)`,
+            top: "50%",
+            left: "50%",
+            transform: `rotate(${i * 45}deg) translateY(-160%) translate(-50%, -50%)`,
+            opacity: 0.25 + i * 0.1,
+            animation: `orbit-fade 1.2s ease-in-out infinite`,
+            animationDelay: `${i * 0.15}s`,
+          }}
+        />
+      ))}
+      <style>{`
+        @keyframes orbit-fade {
+          0%, 100% { opacity: 0.2; transform: rotate(var(--r)) translateY(-160%) translate(-50%, -50%) scale(0.8); }
+          50% { opacity: 1; transform: rotate(var(--r)) translateY(-160%) translate(-50%, -50%) scale(1.1); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+function SpinnerRing() {
+  return (
+    <div className="relative w-8 h-8 animate-[spin_1.4s_linear_infinite]">
+      {[...Array(8)].map((_, i) => (
+        <span
+          key={i}
+          className="absolute rounded-full"
+          style={{
+            width: 9,
+            height: 9,
+            top: "50%",
+            left: "50%",
+            background: `hsl(${270 + i * 12}, 90%, 65%)`,
+            opacity: (i + 1) / 8,
+            transform: `rotate(${i * 45}deg) translateY(-15px) translate(-50%, -50%)`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+const URGENCY_COLOR: Record<string, string> = {
+  critical: "bg-red-500/20 border-red-500/40 text-red-300",
+  high:     "bg-orange-500/20 border-orange-500/40 text-orange-300",
+  medium:   "bg-yellow-500/20 border-yellow-500/40 text-yellow-300",
+  low:      "bg-blue-500/20 border-blue-500/40 text-blue-300",
+  prescription_issued: "bg-emerald-500/20 border-emerald-500/40 text-emerald-300",
+};
+
+type SourceRole = "ALL" | "CLN" | "LAB" | "PHM";
+
+const SOURCE_ROLES: { id: SourceRole; label: string; color: string }[] = [
+  { id: "CLN", label: "Clinic",   color: "text-violet-400 border-violet-500/40 bg-violet-500/10" },
+  { id: "LAB", label: "Lab",      color: "text-sky-400 border-sky-500/40 bg-sky-500/10" },
+  { id: "PHM", label: "Pharmacy", color: "text-emerald-400 border-emerald-500/40 bg-emerald-500/10" },
+];
+
 export default function Home() {
-  const [refId, setRefId] = useState("");
-  const [patientName, setPatientName] = useState("");
-  const [dob, setDob] = useState("");
-  const [nic, setNic] = useState("");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
-  const [mode, setMode] = useState<Mode>("pipeline");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<ReconcileResponse | null>(null);
-  const [verifiedResult, setVerifiedResult] = useState<VerifiedResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Chat state
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [chatLoading, setChatLoading] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const [activeRole, setActiveRole] = useState<SourceRole>("CLN");
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
-  async function handleReconcile(id?: string) {
-    const target = (id ?? refId).trim();
-    if (!target) return;
-    if (mode === "verified" && !patientName.trim()) {
-      setError("Patient name is required for Verified mode.");
-      return;
+  // Poll notifications every 10 seconds, filtered by active role
+  useEffect(() => {
+    async function fetchNotifs() {
+      try {
+        const params = new URLSearchParams({ limit: "30", source: activeRole });
+        const res = await fetch(`${API}/notifications?${params}`);
+        if (res.ok) setNotifications(await res.json());
+      } catch { /* backend may not be ready */ }
     }
-    setLoading(true);
-    setResult(null);
-    setVerifiedResult(null);
-    setError(null);
-    try {
-      if (mode === "verified") {
-        const res = await fetch(`${API}/reconcile-verified`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source_ref_id: target, patient_name: patientName, dob, nic, phone, address }),
-        });
-        if (!res.ok) { const b = await res.json(); throw new Error(b.detail ?? `HTTP ${res.status}`); }
-        const data: VerifiedResponse = await res.json();
-        setVerifiedResult(data);
-        setResult(data.reconciliation);
-      } else {
-        const endpoint = mode === "agent" ? `${API}/reconcile-agent/${target}` : `${API}/reconcile/${target}`;
-        const res = await fetch(endpoint, { method: "POST" });
-        if (!res.ok) { const b = await res.json(); throw new Error(b.detail ?? `HTTP ${res.status}`); }
-        setResult(await res.json());
-      }
-      if (id) setRefId(id);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setLoading(false);
-    }
+    fetchNotifs();
+    const interval = setInterval(fetchNotifs, 10000);
+    return () => clearInterval(interval);
+  }, [activeRole]);
+
+  async function markAllRead() {
+    const unreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
+    if (!unreadIds.length) return;
+    await fetch(`${API}/notifications/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(unreadIds),
+    });
+    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
   }
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages]);
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
-  async function sendChat() {
-    const msg = chatInput.trim();
-    if (!msg || chatLoading) return;
+  async function send(text?: string) {
+    const msg = (text ?? input).trim();
+    if (!msg || loading) return;
     const userMsg: ChatMessage = { role: "user", content: msg };
-    const updated = [...chatMessages, userMsg];
-    setChatMessages(updated);
-    setChatInput("");
-    setChatLoading(true);
+    const updated = [...messages, userMsg];
+    setMessages(updated);
+    setInput("");
+    setLoading(true);
     try {
       const res = await fetch(`${API}/chat`, {
         method: "POST",
@@ -177,611 +154,268 @@ export default function Home() {
         body: JSON.stringify({
           message: msg,
           history: updated.slice(-12).map((m) => ({ role: m.role, content: m.content })),
-          source_ref_id: result?.source_ref_id ?? "",
-          reconciliation_context: result ?? null,
+          source_ref_id: "",
+          reconciliation_context: null,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail ?? `HTTP ${res.status}`);
-      setChatMessages((prev) => [
+      setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: data.reply, guidelines: data.guidelines_used },
+        {
+          role: "assistant",
+          content: data.reply,
+          guidelines: data.guidelines_used,
+          action: data.action,
+          action_data: data.action_data,
+        },
       ]);
     } catch (e: unknown) {
-      setChatMessages((prev) => [
+      setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: `Error: ${e instanceof Error ? e.message : "Unknown error"}` },
+        {
+          role: "assistant",
+          content: `Something went wrong: ${e instanceof Error ? e.message : "Unknown error"}`,
+        },
       ]);
     } finally {
-      setChatLoading(false);
+      setLoading(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
   }
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-white font-sans">
-      {/* Ambient glow */}
-      <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl" />
-      </div>
+    <div className="flex flex-col h-screen bg-[#18191a] text-white font-sans">
 
-      {/* Header */}
-      <header className="relative border-b border-white/[0.06] bg-[#0d1117]/80 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-blue-500/25">
-              C
-            </div>
-            <div>
-              <span className="font-semibold text-white tracking-tight">Concord</span>
-              <span className="ml-2 text-xs text-white/30">Clinical Record Reconciliation</span>
-            </div>
+      {/* Top bar */}
+      <header className="shrink-0 px-6 py-4 flex items-center justify-between border-b border-white/5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center text-white font-bold text-sm">
+            C
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs text-white/40">AI Engine Online</span>
-            </div>
+          <span className="font-semibold tracking-tight">Concord</span>
+          <span className="text-xs text-white/30 hidden sm:block">· Clinical AI</span>
+        </div>
+
+        {/* Role selector */}
+        <div className="flex items-center gap-1 bg-white/4 border border-white/8 rounded-full px-1 py-1">
+          {SOURCE_ROLES.map((r) => (
             <button
-              onClick={() => setChatOpen((o) => !o)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
-                chatOpen
-                  ? "bg-blue-500/20 border-blue-500/40 text-blue-300"
-                  : "bg-white/[0.05] border-white/[0.1] text-white/50 hover:text-white/80 hover:bg-white/[0.08]"
+              key={r.id}
+              onClick={() => { setActiveRole(r.id); setNotifications([]); }}
+              className={`text-xs px-3 py-1 rounded-full font-semibold transition-all ${
+                activeRole === r.id
+                  ? `border ${r.color}`
+                  : "text-white/30 hover:text-white/60"
               }`}
             >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-3 3v-3z" />
-              </svg>
-              Ask AI
+              {r.label}
             </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs text-white/35">Online</span>
+          </div>
+          {/* Notification bell */}
+          <div className="relative">
+            <button
+              onClick={() => { setNotifOpen((o) => !o); if (!notifOpen) markAllRead(); }}
+              className="relative w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-all"
+            >
+              <svg className="w-4 h-4 text-white/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 00-9.33-5.004M9 17H4l1.405-1.405A2.032 2.032 0 006 14.158V11a6 6 0 016-6 6 6 0 016 6v3.159c0 .538.214 1.055.595 1.436L19 17h-4m-6 0v1a3 3 0 006 0v-1m-6 0h6" />
+              </svg>
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </button>
+
+            {/* Dropdown */}
+            {notifOpen && (
+              <div className="absolute right-0 top-10 w-80 max-h-96 overflow-y-auto rounded-2xl border border-white/10 bg-[#1e1f21] shadow-2xl z-50">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-white/8">
+                  <div>
+                    <span className="text-sm font-semibold text-white">Notifications</span>
+                    <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded-full border font-semibold ${SOURCE_ROLES.find(r => r.id === activeRole)?.color ?? ""}`}>
+                      {SOURCE_ROLES.find(r => r.id === activeRole)?.label}
+                    </span>
+                  </div>
+                  <button onClick={markAllRead} className="text-xs text-white/30 hover:text-white/60 transition-colors">Mark all read</button>
+                </div>
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-sm text-white/30">No notifications for {SOURCE_ROLES.find(r => r.id === activeRole)?.label}</div>
+                ) : (
+                  <div className="divide-y divide-white/5">
+                    {notifications.map((n) => (
+                      <div key={n.id} className={`px-4 py-3 ${!n.is_read ? "bg-white/[0.03]" : ""}`}>
+                        <div className="flex items-start gap-2">
+                          <span className={`mt-0.5 text-[10px] px-1.5 py-0.5 rounded border font-semibold uppercase shrink-0 ${URGENCY_COLOR[n.urgency] ?? URGENCY_COLOR.low}`}>
+                            {n.urgency}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-white/80 truncate">{n.title}</p>
+                            <p className="text-xs text-white/40 mt-0.5 line-clamp-2">{n.message}</p>
+                            <p className="text-[10px] text-white/20 mt-1">{n.patient_name} · {new Date(n.created_at).toLocaleTimeString()}</p>
+                          </div>
+                          {!n.is_read && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0 mt-1.5" />}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </header>
 
-      <main className="relative max-w-5xl mx-auto px-6 py-12">
-        {/* Hero */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-medium mb-4">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-            Autonomous · 2 LLM Calls · Zero Manual Triage
-          </div>
-          <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-br from-white via-white to-white/50 bg-clip-text text-transparent mb-3">
-            Patient Record Reconciliation
-          </h1>
-          <p className="text-white/40 text-sm max-w-md mx-auto">
-            Instantly reconcile fragmented patient records across clinics, labs, and pharmacies using AI-powered conflict resolution.
-          </p>
-        </div>
-
-        {/* Search card */}
-        <div className="relative rounded-2xl border border-white/[0.08] bg-white/[0.03] backdrop-blur-sm p-6 mb-8 shadow-2xl">
-          {/* Mode toggle */}
-          <div className="flex items-center justify-between mb-4">
-            <span className="text-xs text-white/40 font-medium uppercase tracking-widest">Mode</span>
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-white/[0.05] border border-white/[0.08]">
-              {(["pipeline", "agent", "verified"] as Mode[]).map((m) => (
+      {/* Message area */}
+      <div className="flex-1 overflow-y-auto">
+        {messages.length === 0 && !loading ? (
+          /* ── Empty / welcome screen ── */
+          <div className="flex flex-col items-center justify-center h-full px-6 text-center">
+            <div className="mb-6">
+              <OrbitSpinner />
+            </div>
+            <h1 className="text-2xl font-bold mb-1">Ask Concord</h1>
+            <p className="text-white/40 text-sm max-w-xs mb-10">
+              Ask about any patient, drug interaction, conflict, or clinical guideline.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg">
+              {STARTERS.map((s) => (
                 <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all capitalize ${
-                    mode === m
-                      ? m === "verified"
-                        ? "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow"
-                        : m === "agent"
-                        ? "bg-gradient-to-r from-violet-600 to-blue-600 text-white shadow"
-                        : "bg-white/10 text-white shadow"
-                      : "text-white/35 hover:text-white/60"
-                  }`}
+                  key={s}
+                  onClick={() => send(s)}
+                  className="text-sm text-left px-4 py-3 rounded-2xl bg-white/[0.05] border border-white/[0.08] text-white/55 hover:text-white/90 hover:bg-white/[0.09] transition-all"
                 >
-                  {m === "verified" ? "✦ Verified" : m === "agent" ? "⚡ RAG + Agent" : "Pipeline"}
+                  {s}
                 </button>
               ))}
             </div>
           </div>
-
-          {mode === "agent" && (
-            <div className="mb-4 px-4 py-3 rounded-xl bg-violet-500/10 border border-violet-500/20 text-xs text-violet-300 leading-relaxed">
-              <span className="font-semibold">Agent mode:</span> LLM drives a tool-use loop — retrieves clinical guidelines (RAG) per conflict, then resolves dynamically.
-            </div>
-          )}
-          {mode === "verified" && (
-            <div className="mb-4 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-300 leading-relaxed">
-              <span className="font-semibold">Verified mode:</span> Two agents run in parallel — Agent 1 validates whether the ID matches the patient&apos;s stated details. If wrong, it finds the correct ID and Agent 2 re-reconciles with it.
-            </div>
-          )}
-
-          {/* ID input */}
-          <div className="flex gap-3 mb-3">
-            <div className="flex-1 relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/25 text-sm">#</span>
-              <input
-                type="text"
-                placeholder="Source Ref ID — CLN-001, LAB-002, PHM-003…"
-                value={refId}
-                onChange={(e) => setRefId(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleReconcile()}
-                className="w-full bg-white/[0.05] border border-white/[0.1] rounded-xl pl-8 pr-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all"
-              />
-            </div>
-            <button
-              onClick={() => handleReconcile()}
-              disabled={loading || !refId.trim()}
-              className="px-6 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 text-white text-sm font-semibold disabled:opacity-40 hover:opacity-90 transition-all shadow-lg shadow-blue-500/20 active:scale-95"
-            >
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-                  </svg>
-                  Running
-                </span>
-              ) : "Reconcile"}
-            </button>
-          </div>
-
-          {/* Verified mode extra fields */}
-          {mode === "verified" && (
-            <div className="space-y-2 mb-3">
-              <div className="grid grid-cols-2 gap-2">
-                <input type="text" placeholder="Patient name (as stated) *" value={patientName}
-                  onChange={(e) => setPatientName(e.target.value)}
-                  className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
-                <input type="text" placeholder="Date of birth (YYYY-MM-DD)" value={dob}
-                  onChange={(e) => setDob(e.target.value)}
-                  className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <input type="text" placeholder="NIC number" value={nic}
-                  onChange={(e) => setNic(e.target.value)}
-                  className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
-                <input type="text" placeholder="Phone number" value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
-                <input type="text" placeholder="Address" value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  className="bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all" />
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-white/25">Try:</span>
-            {SAMPLE_IDS.map((id) => (
-              <button
-                key={id}
-                onClick={() => handleReconcile(id)}
-                disabled={loading}
-                className="text-xs px-3 py-1 rounded-lg bg-white/[0.05] hover:bg-white/[0.09] border border-white/[0.08] text-white/50 hover:text-white/80 disabled:opacity-30 transition-all"
-              >
-                {id}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-5 py-4 mb-6 text-sm text-red-300 flex items-start gap-3">
-            <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.707-4.293a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L10 11.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2z" clipRule="evenodd"/>
-            </svg>
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Loading */}
-        {loading && (
-          <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8">
-            <div className="flex flex-col items-center gap-4 text-center">
-              <div className="w-12 h-12 rounded-full border-2 border-blue-500/30 border-t-blue-500 animate-spin" />
-              <div>
-                <p className="text-sm font-medium text-white/70">
-                  {mode === "verified" ? "Running dual-agent verification…" : "Running agentic loop…"}
-                </p>
-                <p className="text-xs text-white/30 mt-1">
-                  {mode === "verified"
-                    ? "Agent 1: Validating identity · Agent 2: Detecting conflicts · Reconciling"
-                    : "Matching identities · Detecting conflicts · Adjudicating · Reviewing"}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Results */}
-        {result && !loading && (
-          <div className="space-y-5">
-
-            {/* Identity validation panel — verified mode only */}
-            {verifiedResult && (
-              <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
-                {/* Header */}
-                <div className={`px-6 py-4 flex items-center justify-between border-b border-white/[0.06] ${
-                  verifiedResult.identity.mismatch_fields.length > 0
-                    ? "bg-amber-500/10"
-                    : "bg-emerald-500/10"
-                }`}>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">{verifiedResult.identity.mismatch_fields.length > 0 ? "⚠️" : "✅"}</span>
-                    <div>
-                      <p className={`text-xs font-bold uppercase tracking-widest ${
-                        verifiedResult.identity.mismatch_fields.length > 0 ? "text-amber-400" : "text-emerald-400"
-                      }`}>
-                        {verifiedResult.id_was_corrected
-                          ? "Wrong Patient ID — Corrected"
-                          : verifiedResult.identity.mismatch_fields.length > 0
-                          ? "ID Correct · Detail Mismatches Found"
-                          : "Identity Fully Verified"}
-                      </p>
-                      <p className="text-xs text-white/40 mt-0.5">{verifiedResult.identity.explanation}</p>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-xs text-white/30">Confidence</p>
-                    <p className={`text-xl font-bold ${
-                      verifiedResult.identity.mismatch_fields.length > 0 ? "text-amber-300" : "text-emerald-300"
-                    }`}>{Math.round(verifiedResult.identity.confidence * 100)}%</p>
-                  </div>
-                </div>
-
-                {/* ID correction row */}
-                {verifiedResult.id_was_corrected && (
-                  <div className="grid grid-cols-2 gap-px bg-white/[0.04] border-b border-white/[0.06]">
-                    <div className="bg-[#0d1117] px-6 py-3">
-                      <p className="text-xs text-red-400/60 uppercase tracking-widest mb-1">Given ID</p>
-                      <p className="text-sm font-mono font-semibold text-red-300 line-through">{verifiedResult.identity.given_id}</p>
-                    </div>
-                    <div className="bg-[#0d1117] px-6 py-3">
-                      <p className="text-xs text-emerald-400/60 uppercase tracking-widest mb-1">Correct ID Used</p>
-                      <p className="text-sm font-mono font-semibold text-emerald-300">{verifiedResult.identity.correct_id}</p>
-                    </div>
+        ) : (
+          /* ── Conversation ── */
+          <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex gap-3 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                {m.role === "assistant" && (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
+                    C
                   </div>
                 )}
+                <div className={`max-w-[78%] ${m.role === "user" ? "items-end" : "items-start"} flex flex-col gap-1`}>
+                  <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                    m.role === "user"
+                      ? "bg-[#2d2f31] text-white/90 rounded-tr-sm"
+                      : "bg-transparent text-white/85"
+                  }`}>
+                    <p className="whitespace-pre-wrap">{m.content}</p>
+                  </div>
 
-                {/* Per-field breakdown table */}
-                {verifiedResult.identity.field_details.length > 0 && (
-                  <div className="divide-y divide-white/[0.04]">
-                    <div className="grid grid-cols-4 px-6 py-2 bg-white/[0.02]">
-                      <p className="text-xs text-white/30 uppercase tracking-widest">Field</p>
-                      <p className="text-xs text-white/30 uppercase tracking-widest">Patient Stated</p>
-                      <p className="text-xs text-white/30 uppercase tracking-widest">On Record</p>
-                      <p className="text-xs text-white/30 uppercase tracking-widest text-right">Status</p>
-                    </div>
-                    {verifiedResult.identity.field_details.map((f) => (
-                      <div key={f.field} className={`grid grid-cols-4 px-6 py-3 items-center ${!f.match ? "bg-red-500/[0.04]" : ""}`}>
-                        <p className="text-xs font-semibold text-white/50 uppercase tracking-wide">{f.field}</p>
-                        <p className={`text-sm font-medium ${!f.match ? "text-red-300" : "text-white/70"}`}>{f.provided || "—"}</p>
-                        <p className="text-sm text-white/50">{f.stored || "—"}</p>
-                        <div className="flex justify-end">
-                          {f.match
-                            ? <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-semibold">✓ Match</span>
-                            : <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-semibold">✗ Mismatch</span>
-                          }
-                        </div>
+                  {/* Registration success card */}
+                  {m.action === "registered" && m.action_data && (
+                    <div className="mt-2 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 text-lg shrink-0">✓</div>
+                      <div>
+                        <p className="text-xs text-emerald-400/70 uppercase tracking-widest mb-0.5">Registered</p>
+                        <p className="text-sm font-semibold text-emerald-300">{m.action_data.patient_name}</p>
+                        <p className="text-xs font-mono text-emerald-400/60 mt-0.5">ID: {m.action_data.source_ref_id}</p>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Patient card */}
-            <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 shadow-2xl">
-              <div className="flex items-start justify-between mb-6">
-                <div>
-                  <p className="text-xs text-white/35 uppercase tracking-widest mb-1">Reconciled Patient</p>
-                  <h2 className="text-3xl font-bold tracking-tight">{result.patient_name}</h2>
-                  <p className="text-sm text-white/35 mt-1">
-                    {result.source_ref_id} &nbsp;·&nbsp; cluster <code className="text-white/50 font-mono text-xs">{result.cluster_id.slice(0, 8)}</code>
-                  </p>
-                </div>
-                <StatusBadge safe={result.overall_safe} />
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                <StatCard label="Conflicts" value={result.conflicts_detected} color="from-orange-500 to-red-500" />
-                <StatCard label="Auto-Fixed" value={result.changes_applied} color="from-emerald-500 to-teal-500" />
-                <StatCard label="Escalated" value={result.escalations.length} color="from-violet-500 to-purple-500" />
-              </div>
-            </div>
-
-            {/* Agent metadata */}
-            {result.mode === "agent" && (
-              <div className="rounded-2xl border border-violet-500/20 bg-violet-500/[0.06] px-6 py-4 flex flex-wrap gap-4 items-center">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
-                  <span className="text-xs font-semibold text-violet-300 uppercase tracking-widest">RAG + Agent</span>
-                </div>
-                {result.turns_taken != null && (
-                  <div className="flex items-center gap-1.5 text-xs text-violet-300/70">
-                    <span className="font-mono bg-violet-500/20 px-2 py-0.5 rounded">{result.turns_taken}</span>
-                    <span>tool-use turns</span>
-                  </div>
-                )}
-                {result.guidelines_used && result.guidelines_used.length > 0 && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-xs text-violet-300/50">Guidelines retrieved:</span>
-                    {result.guidelines_used.map((g) => (
-                      <span key={g} className="text-xs font-mono px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300/80">
-                        {g}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* AI Summary */}
-            <div className="rounded-2xl border border-blue-500/20 bg-blue-500/[0.06] px-6 py-5">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-5 h-5 rounded-md bg-blue-500/20 flex items-center justify-center">
-                  <svg className="w-3 h-3 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M10 2a8 8 0 100 16A8 8 0 0010 2zm1 11H9v-2h2v2zm0-4H9V7h2v2z"/>
-                  </svg>
-                </div>
-                <span className="text-xs font-semibold text-blue-400 uppercase tracking-wide">AI Adjudication Summary</span>
-              </div>
-              <p className="text-sm text-blue-100/80 leading-relaxed">{result.adjudication_summary}</p>
-            </div>
-
-            {/* Conflicts */}
-            {result.conflicts.length > 0 && (
-              <section>
-                <SectionHeader title="Conflicts & Resolutions" count={result.conflicts.length} />
-                <div className="space-y-3 mt-3">
-                  {result.conflicts.map((c, i) => {
-                    const res = result.resolutions[i];
-                    const style = CONFLICT_TYPE_COLORS[c.conflict_type] ?? { bg: "bg-white/5", text: "text-white/50", dot: "bg-white/30" };
-                    const actionStyle = res ? (ACTION_STYLE[res.action] ?? { label: res.action, cls: "bg-white/10 text-white/50 border border-white/10" }) : null;
-                    return (
-                      <div key={i} className="rounded-2xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
-                        {/* Top bar */}
-                        <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06]">
-                          <div className="flex items-center gap-2">
-                            <span className={`w-2 h-2 rounded-full ${style.dot}`} />
-                            <span className={`text-xs font-semibold uppercase tracking-wider ${style.text}`}>
-                              {c.conflict_type.replace(/_/g, " ")}
-                            </span>
-                            <span className="text-xs text-white/25 ml-1">· {c.field}</span>
-                          </div>
-                          {actionStyle && (
-                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg ${actionStyle.cls}`}>
-                              {actionStyle.label}
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="px-5 py-4">
-                          <p className="text-sm text-white/60 mb-4 leading-relaxed">{c.description}</p>
-
-                          {/* Source comparison */}
-                          <div className="grid grid-cols-2 gap-3 mb-4">
-                            <SourceBox source={c.source_a} value={c.value_a} />
-                            <SourceBox source={c.source_b} value={c.value_b} />
-                          </div>
-
-                          {/* Resolution */}
-                          {res && (
-                            <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3">
-                              <p className="text-xs text-white/35 mb-1.5">AI Rationale</p>
-                              <p className="text-sm text-white/70 leading-relaxed">{res.rationale}</p>
-                              <div className="flex items-center gap-3 mt-3">
-                                <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full bg-gradient-to-r from-blue-500 to-violet-500 rounded-full transition-all duration-700"
-                                    style={{ width: `${res.confidence * 100}%` }}
-                                  />
-                                </div>
-                                <span className="text-xs text-white/40 whitespace-nowrap">
-                                  {Math.round(res.confidence * 100)}% confidence
-                                </span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-
-            {/* Escalations */}
-            {result.escalations.length > 0 && (
-              <section>
-                <SectionHeader title="Clinician Escalations" count={result.escalations.length} warn />
-                <div className="space-y-2 mt-3">
-                  {result.escalations.map((e, i) => (
-                    <div
-                      key={i}
-                      className={`rounded-xl border px-5 py-4 ${URGENCY_STYLE[e.urgency.toLowerCase()] ?? "border-white/10 bg-white/5 text-white/60"}`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-bold uppercase tracking-widest">
-                          {e.urgency} &nbsp;·&nbsp; {e.field}
-                        </span>
-                        <code className="text-xs opacity-40 font-mono">
-                          {result.escalation_ids[i]?.slice(0, 8)}&hellip;
-                        </code>
-                      </div>
-                      <p className="text-sm opacity-80">{e.reason}</p>
                     </div>
-                  ))}
-                </div>
-              </section>
-            )}
+                  )}
 
-            {/* All clear */}
-            {result.conflicts.length === 0 && (
-              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.06] px-6 py-8 text-center">
-                <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3">
-                  <svg className="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                </div>
-                <p className="font-semibold text-emerald-300">No conflicts detected</p>
-                <p className="text-sm text-emerald-400/60 mt-1">All records are consistent across sources.</p>
-              </div>
-            )}
-          </div>
-        )}
-      </main>
+                  {/* Update success card */}
+                  {m.action === "updated" && m.action_data && (
+                    <div className="mt-2 rounded-2xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-lg shrink-0">↑</div>
+                      <div>
+                        <p className="text-xs text-blue-400/70 uppercase tracking-widest mb-0.5">Updated</p>
+                        <p className="text-sm font-semibold text-blue-300">{m.action_data.patient_name}</p>
+                        <p className="text-xs font-mono text-blue-400/60 mt-0.5">ID: {m.action_data.source_ref_id}</p>
+                      </div>
+                    </div>
+                  )}
 
-      {/* Chat panel — fixed bottom-right drawer */}
-      {chatOpen && (
-        <div className="fixed bottom-6 right-6 z-50 w-[420px] max-h-[600px] flex flex-col rounded-2xl border border-white/[0.1] bg-[#0d1117]/95 backdrop-blur-xl shadow-2xl shadow-black/60">
-          {/* Chat header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.07] bg-white/[0.03] rounded-t-2xl">
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold">
-                AI
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-white">Concord Assistant</p>
-                <p className="text-xs text-white/35">
-                  {result ? `Context: ${result.source_ref_id} · ${result.patient_name}` : "Ask about any patient — e.g. \"tell me about CLN-001\""}
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setChatOpen(false)}
-              className="text-white/30 hover:text-white/70 transition-colors p-1"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+                  {/* Duplicate warning card */}
+                  {m.action === "duplicate" && m.action_data && (
+                    <div className="mt-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400 text-lg shrink-0">⚠</div>
+                      <div>
+                        <p className="text-xs text-amber-400/70 uppercase tracking-widest mb-0.5">Already Exists</p>
+                        <p className="text-sm font-semibold text-amber-300">{m.action_data.patient_name}</p>
+                        <p className="text-xs font-mono text-amber-400/60 mt-0.5">Existing ID: {m.action_data.existing_id}</p>
+                      </div>
+                    </div>
+                  )}
 
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-[300px] max-h-[430px]">
-            {chatMessages.length === 0 && (
-              <div className="text-center pt-8">
-                <p className="text-white/25 text-sm">Ask anything about this patient, drug interactions, or clinical guidelines.</p>
-                <div className="mt-4 flex flex-col gap-2">
-                  {[
-                    "Tell me about patient CLN-001",
-                    "What conflicts does LAB-001 have?",
-                    "What is the warfarin + aspirin risk?",
-                  ].map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => { setChatInput(s); }}
-                      className="text-xs px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.07] transition-all text-left"
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {chatMessages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                  m.role === "user"
-                    ? "bg-blue-600/30 border border-blue-500/30 text-blue-100 rounded-br-sm"
-                    : "bg-white/[0.06] border border-white/[0.08] text-white/85 rounded-bl-sm"
-                }`}>
-                  <p className="whitespace-pre-wrap">{m.content}</p>
                   {m.guidelines && m.guidelines.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1 mt-1">
                       {m.guidelines.map((g) => (
-                        <span key={g} className="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400/80 font-mono">
+                        <span key={g} className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400/70 font-mono border border-violet-500/20">
                           {g}
                         </span>
                       ))}
                     </div>
                   )}
                 </div>
+                {m.role === "user" && (
+                  <div className="w-8 h-8 rounded-full bg-[#3a3b3c] flex items-center justify-center text-white/60 text-xs font-semibold shrink-0 mt-0.5">
+                    You
+                  </div>
+                )}
               </div>
             ))}
-            {chatLoading && (
-              <div className="flex justify-start">
-                <div className="bg-white/[0.06] border border-white/[0.08] rounded-2xl rounded-bl-sm px-4 py-3">
-                  <div className="flex gap-1.5 items-center">
-                    <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:0ms]" />
-                    <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:150ms]" />
-                    <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:300ms]" />
-                  </div>
+
+            {/* Loading spinner */}
+            {loading && (
+              <div className="flex gap-3 justify-start">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
+                  C
+                </div>
+                <div className="flex items-center pt-1">
+                  <SpinnerRing />
                 </div>
               </div>
             )}
-            <div ref={chatEndRef} />
-          </div>
 
-          {/* Input */}
-          <div className="px-4 py-3 border-t border-white/[0.07]">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Ask a clinical question…"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendChat()}
-                className="flex-1 bg-white/[0.05] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-blue-500/40 transition-all"
-              />
-              <button
-                onClick={sendChat}
-                disabled={chatLoading || !chatInput.trim()}
-                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-violet-600 text-white text-sm font-semibold disabled:opacity-40 hover:opacity-90 transition-all active:scale-95"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                </svg>
-              </button>
-            </div>
+            <div ref={endRef} />
           </div>
+        )}
+      </div>
+
+      {/* Input bar */}
+      <div className="shrink-0 px-4 pb-6 pt-3">
+        <div className="max-w-2xl mx-auto">
+          <div className="flex items-center gap-2 bg-[#2d2f31] rounded-full px-5 py-3 border border-white/[0.08] focus-within:border-violet-500/40 transition-all shadow-xl">
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder="Ask Concord anything…"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+              className="flex-1 bg-transparent text-sm text-white placeholder:text-white/30 focus:outline-none"
+            />
+            <button
+              onClick={() => send()}
+              disabled={loading || !input.trim()}
+              className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center disabled:opacity-30 hover:opacity-90 transition-all active:scale-90 shrink-0"
+            >
+              <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+          <p className="text-center text-[11px] text-white/15 mt-2">
+            Sample IDs: CLN-001 · CLN-002 · CLN-003 · LAB-001 · PHM-001
+          </p>
         </div>
-      )}
-    </div>
-  );
-}
-
-function StatusBadge({ safe }: { safe: boolean }) {
-  return (
-    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold ${
-      safe
-        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-        : "bg-red-500/10 border-red-500/30 text-red-400"
-    }`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${safe ? "bg-emerald-400" : "bg-red-400 animate-pulse"}`} />
-      {safe ? "Safe" : "Needs Review"}
-    </div>
-  );
-}
-
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-4 text-center">
-      <p className={`text-3xl font-bold bg-gradient-to-br ${color} bg-clip-text text-transparent`}>
-        {value}
-      </p>
-      <p className="text-xs text-white/35 mt-1 uppercase tracking-wide">{label}</p>
-    </div>
-  );
-}
-
-function SourceBox({ source, value }: { source: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2.5">
-      <p className="text-xs text-white/30 uppercase tracking-widest mb-1">{source}</p>
-      <p className="text-sm font-medium text-white/80">{value}</p>
-    </div>
-  );
-}
-
-function SectionHeader({ title, count, warn }: { title: string; count: number; warn?: boolean }) {
-  return (
-    <div className="flex items-center gap-3">
-      <h3 className="text-xs font-semibold text-white/40 uppercase tracking-widest">{title}</h3>
-      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-        warn ? "bg-red-500/20 text-red-400" : "bg-white/10 text-white/50"
-      }`}>
-        {count}
-      </span>
-      <div className="flex-1 h-px bg-white/[0.06]" />
+      </div>
     </div>
   );
 }
