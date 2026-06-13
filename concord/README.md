@@ -1,73 +1,70 @@
-# Concord — Autonomous Clinical Record Reconciliation
+# Concord — Clinical Record Reconciliation System
 
 > Built for **AgenTrix 2026 Hackathon** by Dippy2003  
-> Autonomous AI system that reconciles fragmented patient records across Sri Lankan clinics, labs, and pharmacies — using RAG + multi-agent architecture.
+> Multi-agent AI platform that reconciles fragmented patient records across Sri Lankan clinics, labs, and pharmacies — using RAG-augmented LLMs, real-time conflict detection, and a full natural-language chat interface.
 
 ---
 
-## What Problem Does This Solve?
+## The Problem
 
-In Sri Lanka, a single patient's health records are scattered across:
-- **Clinics** — diagnoses, prescriptions
-- **Laboratories** — blood tests, blood type
-- **Pharmacies** — dispensed medications
+In Sri Lanka, a single patient's records are scattered across three disconnected systems:
 
-These systems don't talk to each other. A patient might be prescribed **warfarin** at the clinic and **aspirin** at the pharmacy — a dangerous drug interaction that no one catches because the records are never compared.
+| Location | What they record |
+|---|---|
+| **Clinic** | Diagnoses, prescriptions, allergies |
+| **Laboratory** | Blood tests, blood type results |
+| **Pharmacy** | Dispensed medications |
 
-**Concord** automatically pulls all records for a patient, detects conflicts, and uses AI to resolve or escalate them — without any human having to manually compare files.
+These systems never talk to each other. A patient prescribed **warfarin** at the clinic and **aspirin** at the pharmacy has a dangerous drug interaction — and no one catches it. A dengue patient given **ibuprofen** at the pharmacy risks severe haemorrhage. Concord fixes this automatically.
 
 ---
 
-## How It Works — The Full Flow
+## How It Works
 
 ```
-Patient gives their ID
+User types in chat
         │
         ▼
-┌───────────────────┐      ┌──────────────────────┐
-│  Identity Agent   │      │  Reconciliation Agent │
-│                   │      │                       │
-│ 1. Look up the    │◄────►│ 1. Match records from │
-│    record for     │      │    clinic, lab, pharma│
-│    given ID       │      │                       │
-│                   │      │ 2. Detect conflicts:  │
-│ 2. Compare every  │      │    drug interactions, │
-│    detail patient │      │    allergy mismatches,│
-│    stated vs what │      │    data inconsistency │
-│    is on file     │      │                       │
-│    (name, DOB,    │      │ 3. Retrieve clinical  │
-│     NIC, phone,   │      │    guidelines via RAG │
-│     address)      │      │    (vector search)    │
-│                   │      │                       │
-│ 3. If ID wrong →  │      │ 4. LLM decides:       │
-│    find correct   │      │    resolve or escalate│
-│    ID             │      │    each conflict      │
-└───────────────────┘      └──────────────────────┘
-        │                          │
-        └──────────┬───────────────┘
-                   ▼
-        ┌─────────────────────┐
-        │   Combined Result   │
-        │                     │
-        │  • Identity status  │
-        │  • Per-field match  │
-        │  • All conflicts    │
-        │  • AI resolutions   │
-        │  • Escalations      │
-        └─────────────────────┘
-                   │
-                   ▼
-        ┌─────────────────────┐
-        │   Concord Assistant │
-        │   (Chat with AI)    │
-        │                     │
-        │  Ask anything about │
-        │  the results, drug  │
-        │  risks, guidelines  │
-        └─────────────────────┘
-```
+┌─────────────────────┐
+│    Router Agent     │  ← classifies intent (7 types)
+└────────┬────────────┘
+         │
+   ┌─────┴──────────────────────────────────────┐
+   │                                             │
+   ▼                                             ▼
+register / update                          reconcile
+   │                                             │
+   ▼                                             ▼
+Registration Agent                    Reconciliation Agent
+• create patient record               • compare fields across locations
+• link to cluster                     • detect conflicts
+• embed for matching                  • RAG: retrieve guidelines per conflict
+                                      • LLM Call 1: adjudicate each conflict
+   ▼                                  • LLM Call 2: safety review
+prescribe                             • notify ALL locations in cluster
+   │
+   ▼
+Prescription Agent (tool loop)
+• get_patient_record
+• check_interaction → RAG (drug_interaction + allergy)
+• issue_prescription OR block_prescription
 
-Both agents run **at the same time** (parallel threads). If the Identity Agent finds the patient used the wrong ID, the reconciliation re-runs automatically with the correct one.
+   ▼
+db_update
+   │
+   ▼
+Database Agent (tool loop)
+• 14 tools: update, add, remove, delete any Supabase table
+• auto-resolves cluster_id
+• re-embeds on identity changes
+
+   ▼
+query
+   │
+   ▼
+Query Agent → LLM formats with RAG context
+• 7 query types: patients, prescriptions, escalations, search...
+```
 
 ---
 
@@ -75,45 +72,28 @@ Both agents run **at the same time** (parallel threads). If the Identity Agent f
 
 ### Tech Stack
 
-| Layer | Technology |
+| Layer | Technology | Role |
+|---|---|---|
+| Frontend | Next.js 14, TypeScript, Tailwind CSS | Chat UI, role selector, notification bell |
+| API | FastAPI + Uvicorn (Python 3.11+) | REST endpoints, intent routing |
+| LLM Primary | Gemini 2.0 Flash | Adjudication, conflict safety review |
+| LLM Secondary | Groq Llama 3.3-70B | All agent tool loops |
+| LLM Tertiary | Groq Llama 3.1-8B | Rate-limit fallback |
+| Embeddings | all-MiniLM-L6-v2 (offline, 384-dim) | Patient matching + RAG search |
+| Database | Supabase (PostgreSQL + pgvector) | All data + vector search |
+| Package Manager | `uv` (Python), `npm` (Node) |  |
+
+### Why not LangChain?
+
+Concord uses a **custom agent architecture** for full control:
+
+| LangChain | Concord |
 |---|---|
-| Backend API | FastAPI (Python) |
-| LLM | Groq — `llama-3.3-70b-versatile` (free tier) |
-| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` (runs offline, 384-dim) |
-| Vector DB | Supabase + pgvector (cosine similarity search) |
-| Database | Supabase (PostgreSQL) |
-| Frontend | Next.js 15 + TypeScript + Tailwind CSS |
-| Package Manager | `uv` (Python), `npm` (Node) |
-
-### What is RAG?
-
-**RAG = Retrieval-Augmented Generation**
-
-Instead of the LLM relying only on what it learned during training, we:
-1. Store 16 curated clinical guidelines in Supabase as vector embeddings
-2. When a conflict is detected (e.g. warfarin + aspirin), we embed the conflict description and search for the most similar guidelines
-3. Those guidelines are injected into the LLM prompt as context
-4. The LLM makes its decision **grounded in real clinical evidence**, not just pattern matching
-
-This means if you add a new drug interaction guideline to the database, the AI immediately knows about it — no retraining needed.
-
-### What is Agentic?
-
-Instead of a fixed pipeline ("step 1 → step 2 → step 3"), the **LLM itself decides** what to do next using tools:
-
-```
-LLM thinks → calls tool → sees result → thinks again → calls another tool → ...
-```
-
-The reconciliation agent has 6 tools:
-- `match_patient_records` — find all records for this patient
-- `detect_record_conflicts` — compare records and list conflicts
-- `retrieve_medical_guidelines` — RAG search for relevant guidelines
-- `resolve_conflict` — mark a conflict as resolved with rationale
-- `escalate_conflict` — flag for human clinician review
-- `complete_reconciliation` — finish and return results
-
-The LLM decides which tool to call and when. It might retrieve guidelines for one conflict, resolve it, then escalate a different one — all in one session.
+| LangChain agent loops | Custom `while turns < MAX_TURNS` tool loop |
+| LangChain tools | Plain Python functions as Groq JSON tool schemas |
+| LangChain RAG chains | Custom `rag_retriever.py` with pgvector |
+| LangChain memory | Python dict with 5-min TTL cache |
+| LLM wrappers | Direct `google.generativeai` + `groq` SDK calls |
 
 ---
 
@@ -122,113 +102,140 @@ The LLM decides which tool to call and when. It might retrieve guidelines for on
 ```
 concord/
 ├── backend/
-│   ├── api.py                # FastAPI server — all HTTP endpoints
-│   ├── agent.py              # Reconciliation agent (Groq + tool loop)
-│   ├── identity_agent.py     # Identity validation agent
-│   ├── rag_retriever.py      # Vector search over medical guidelines
-│   ├── knowledge_base.py     # Seeds the 16 clinical guidelines into DB
-│   ├── identity_matcher.py   # Cross-source patient identity matching
-│   ├── conflict_detector.py  # Rule-based conflict detection
-│   ├── adjudicator.py        # LLM-based conflict adjudication (pipeline mode)
-│   ├── action_executor.py    # Applies resolved changes to DB
-│   ├── escalation_reviewer.py# LLM escalation review (pipeline mode)
-│   ├── embed_records.py      # Embeds patient records for similarity search
-│   ├── llm_interface.py      # Shared LLM utilities
-│   ├── pyproject.toml        # Python dependencies
-│   └── .env.example          # Environment variable template
+│   ├── api.py                  ← FastAPI routes (main entry point)
+│   ├── router_agent.py         ← Intent classification (7 intents)
+│   ├── registration_agent.py   ← Patient register + update + re-embed
+│   ├── agent.py                ← Reconciliation pipeline + LLM adjudication
+│   ├── prescription_agent.py   ← Drug safety agentic tool loop (max 8 turns)
+│   ├── database_agent.py       ← Full CRUD agentic tool loop (max 10 turns)
+│   ├── query_agent.py          ← Non-agentic DB queries (7 query types)
+│   ├── llm_interface.py        ← Gemini/Groq wrappers + Pydantic schemas
+│   ├── rag_retriever.py        ← Category-filtered RAG with severity reranking
+│   ├── knowledge_base.py       ← Seeds 32 clinical guidelines into Supabase
+│   ├── embed_records.py        ← Patient embedding + re_embed_record()
+│   ├── pyproject.toml
+│   └── .env
 │
 ├── db/
-│   ├── 01_schema.sql         # All table definitions
-│   ├── 02_seed.sql           # Sample patient data (CLN-001, LAB-001, etc.)
-│   ├── 03_match_function.sql # pgvector RPC for patient record search
-│   └── 04_knowledge_base.sql # pgvector RPC for guideline search
+│   ├── 01_schema.sql           ← source_records, patient_clusters, conflicts
+│   ├── 02_seed.sql             ← Sample patients (CLN-001, LAB-001, PHM-001)
+│   ├── 03_match_function.sql   ← pgvector RPC for patient similarity search
+│   ├── 04_knowledge_base.sql   ← pgvector RPC: match_guidelines()
+│   └── 05_notifications.sql    ← notifications + prescriptions tables
 │
-└── frontend/
-    └── app/
-        └── page.tsx          # Entire UI — single-page React app
+├── frontend/
+│   └── app/
+│       └── page.tsx            ← Full chat UI (single page)
+│
+├── SYSTEM_DOCUMENTATION.html   ← Full written docs (open in browser → Save as PDF)
+└── SYSTEM_DIAGRAMS.html        ← Visual diagrams (open in browser → Save as PDF)
 ```
+
+---
+
+## The 7 Chat Intents
+
+| Intent | Triggered by | Agent | Uses RAG? |
+|---|---|---|---|
+| `register` | "Add clinic patient: …" | Registration Agent | No |
+| `update` | "Update CLN-001 name to …" | Registration Agent | No |
+| `prescribe` | "**Prescribe** ibuprofen for CLN-001" | Prescription Agent | Yes — drug_interaction + allergy |
+| `db_update` | "**Add medication** X", "Remove allergy Y", "Delete …" | Database Agent | No |
+| `query` | "Show all patients", "List escalations", "Search …" | Query Agent + LLM | Yes — chat (0.35 threshold) |
+| `reconcile` | "Compare CLN-001 and LAB-001" | Reconciliation Agent | Yes — per conflict type |
+| `chat` | General clinical questions | LLM | Yes — all categories |
+
+> **Critical distinction:** "Add medication warfarin" = `db_update` (no safety check). "**Prescribe** warfarin" = `prescribe` (full RAG interaction check).
+
+---
+
+## RAG System — Clinical Knowledge Base
+
+32 guidelines embedded in Supabase as 384-dim vectors. Retrieved dynamically at decision time — no LLM retraining needed when you add a new guideline.
+
+### Retrieval Strategy per Agent
+
+| Agent | Function | Threshold | Categories |
+|---|---|---|---|
+| Prescription Agent | `retrieve_for_prescription()` | 0.30 | drug_interaction + allergy_mismatch |
+| Reconciliation Agent | `retrieve_for_conflict()` | 0.25 | mapped from conflict_type |
+| General Chat | `retrieve_for_chat()` | 0.35 | all |
+
+**Severity re-ranking:** `score = similarity × weight` where critical=2.0×, high=1.5×, medium=1.0×, low=0.7×. Critical guidelines always surface first even at slightly lower cosine similarity.
+
+### Guidelines Coverage
+
+| Category | Count | Examples |
+|---|---|---|
+| Drug Interactions (DI-) | 12 | Warfarin+Aspirin (CRITICAL), Opioids+Benzos (CRITICAL), Metformin+Contrast, Statins+Macrolides |
+| Sri Lanka Specific (LK-) | 6 | **Dengue+NSAIDs (CRITICAL)**, Malaria+G6PD (CRITICAL), Ayurvedic interactions |
+| Allergy Protocols (AL-) | 8 | Penicillin (CRITICAL), Sulfonamide, NSAID hypersensitivity, Latex-Fruit |
+| Data Integrity (DT-) | 4 | Blood type conflict, Patient identity matching, Renal dosing, Hepatic impairment |
+| Paediatric (PD-) | 2 | Weight-based dosing, Age restrictions (aspirin/codeine — CRITICAL) |
+| Pregnancy (PG-) | 2 | Category D/X contraindications (CRITICAL), Safe medications |
+| Renal/Hepatic | 2 | eGFR-based dosing, Child-Pugh classification |
+
+---
+
+## Role-Based Notifications
+
+Staff at each location see only their own notifications in the bell icon. When a cross-location conflict is detected, **all locations in the same patient cluster** are notified:
+
+```
+CLN-001 and LAB-001 are the same patient (same cluster)
+→ Conflict detected: blood_type A+ (clinic) vs B+ (lab)
+→ CLN role bell: 🔔 1 unread
+→ LAB role bell: 🔔 1 unread
+→ PHM role bell: (silent — not involved in this conflict)
+```
+
+Role selector in the header filters to: ALL | CLN | LAB | PHM
+
+---
+
+## Database — 7 Supabase Tables
+
+| Table | Purpose |
+|---|---|
+| `source_records` | Patient records per location (with embedding vector) |
+| `patient_clusters` | Groups the same patient across locations |
+| `detected_conflicts` | Per-field conflicts found during reconciliation |
+| `adjudications` | LLM resolutions for each conflict |
+| `escalations` | Conflicts flagged for human clinician review |
+| `notifications` | Per-location alerts (role-filtered) |
+| `prescriptions` | Prescription history (active / blocked / cancelled) |
+| `medical_guidelines` | RAG knowledge base (with embedding vector) |
 
 ---
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
+| Method | Path | Description |
 |---|---|---|
 | GET | `/health` | Health check |
-| POST | `/reconcile/{id}` | Pipeline mode — 5-step fixed reconciliation |
-| POST | `/reconcile-agent/{id}` | Agent mode — LLM drives the tool loop with RAG |
-| POST | `/reconcile-verified` | Verified mode — dual agents run in parallel |
-| POST | `/chat` | Chat with AI about any clinical question |
+| POST | `/chat` | Main chat endpoint — all intents handled here |
+| GET | `/notifications` | List notifications (`?source=CLN\|LAB\|PHM`) |
+| DELETE | `/notifications/{id}` | Delete one notification |
+| DELETE | `/notifications` | Clear all for a location (`?source=CLN`) |
 
-### `/reconcile-verified` — the main endpoint
-
-Accepts:
-```json
-{
-  "source_ref_id": "CLN-001",
-  "patient_name": "Nimal Perera",
-  "dob": "1975-03-12",
-  "nic": "750312123V",
-  "phone": "0771234567",
-  "address": "Colombo 7"
-}
-```
-
-Returns:
-```json
-{
-  "identity": {
-    "is_correct": true,
-    "field_details": [
-      { "field": "name", "provided": "Nimal Perera", "stored": "Nimal Perera", "match": true },
-      { "field": "dob",  "provided": "1975-03-12",   "stored": "1975-03-12",   "match": true }
-    ],
-    "confidence": 0.97
-  },
-  "reconciliation": {
-    "conflicts_detected": 1,
-    "conflicts": [...],
-    "resolutions": [...],
-    "overall_safe": false,
-    "adjudication_summary": "..."
-  },
-  "id_was_corrected": false
-}
-```
-
-### `/chat` — conversational AI
+### POST /chat — Request
 
 ```json
 {
-  "message": "Why was this conflict escalated?",
-  "source_ref_id": "CLN-001",
-  "reconciliation_context": { ...full result from previous reconciliation... },
-  "history": []
+  "message": "Prescribe metformin for CLN-001",
+  "source_ref_id": "CLN-001"
 }
 ```
 
-The chat is context-aware — if you've reconciled a patient first, the assistant knows everything about that patient's conflicts and can answer specific questions about them.
+### POST /chat — Response examples
 
----
-
-## UI Modes
-
-### Pipeline Mode
-Classic deterministic reconciliation. Uses rule-based conflict detection + 2 LLM calls (adjudication + escalation review). Fast.
-
-### RAG + Agent Mode
-The LLM drives the full loop. Retrieves clinical guidelines per conflict via vector search. More thorough, takes more turns.
-
-### Verified Mode (Recommended)
-Combines both agents:
-1. **Identity Agent** checks every detail the patient stated (name, DOB, NIC, phone, address) against what's on file, field by field
-2. **Reconciliation Agent** runs the full conflict analysis in parallel
-3. If the ID was wrong, reconciliation re-runs automatically with the corrected ID
-
-Shows a per-field match/mismatch table so you can see exactly which details the patient got wrong.
-
-### Ask AI (Chat)
-Chat panel in the bottom-right corner. Asks questions grounded in clinical guidelines retrieved via RAG. When a patient has been reconciled, the assistant has full context of their conflicts, resolutions, and escalations.
+```json
+{ "action": "issued",   "drug": "metformin", "patient_name": "Perera Sunil" }
+{ "action": "blocked",  "drug": "ibuprofen", "reason": "Dengue fever — NSAIDs contraindicated (LK-002)" }
+{ "action": "db_updated","message": "Medication paracetamol added to CLN-001" }
+{ "action": "reconciled","conflicts": [...], "resolutions": [...] }
+{ "action": "query_result","data": [...], "total": 5 }
+```
 
 ---
 
@@ -236,149 +243,135 @@ Chat panel in the bottom-right corner. Asks questions grounded in clinical guide
 
 ### Prerequisites
 
-- Python 3.13+
+- Python 3.11+ with `uv`: `pip install uv`
 - Node.js 18+
-- `uv` (Python package manager): `pip install uv`
-- A Supabase project with pgvector enabled
-- A free Groq API key from [console.groq.com](https://console.groq.com)
+- Supabase project with pgvector enabled
+- Gemini API key — [aistudio.google.com](https://aistudio.google.com)
+- Groq API key (free) — [console.groq.com](https://console.groq.com)
 
-### 1. Database Setup
+### 1. Environment Variables
 
-Run these SQL files **in order** in the Supabase SQL editor:
+Create `concord/backend/.env`:
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your_service_role_key
+GEMINI_API_KEY=your_gemini_key
+GROQ_API_KEY=your_groq_key
+```
+
+### 2. Supabase Setup
+
+Run these in the Supabase SQL editor **in order**:
 
 ```
-db/01_schema.sql          — creates all tables
-db/02_seed.sql            — inserts sample patients
-db/03_match_function.sql  — creates patient vector search RPC
-db/04_knowledge_base.sql  — creates guideline vector search RPC
+db/01_schema.sql          ← creates all tables
+db/02_seed.sql            ← inserts sample patients
+db/03_match_function.sql  ← creates patient vector search RPC
+db/04_knowledge_base.sql  ← creates match_guidelines() RPC
+db/05_notifications.sql   ← creates notifications + prescriptions tables
 ```
 
-Also run this to disable RLS on the guidelines table:
+Also enable pgvector:
 ```sql
-alter table medical_guidelines disable row level security;
+CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-### 2. Backend Setup
+### 3. Backend Setup
 
 ```bash
 cd concord/backend
 
-# Copy and fill in your API keys
-cp .env.example .env
-# Edit .env — add your SUPABASE_URL, SUPABASE_SERVICE_KEY, GROQ_API_KEY
+uv sync                          # install Python dependencies
 
-# Install dependencies
-uv sync
+uv run python embed_records.py   # embed sample patient records (one-time)
+uv run python knowledge_base.py  # seed 32 guidelines into Supabase (one-time)
 
-# Embed the patient records (one-time setup)
-uv run python embed_records.py
-
-# Seed the medical guidelines knowledge base (one-time setup)
-uv run python knowledge_base.py
-
-# Start the API server
 uv run uvicorn api:app --reload --port 8080
 ```
 
-The API is now running at `http://localhost:8080`.  
-Swagger docs: `http://localhost:8080/docs`
+API running at `http://localhost:8080` — Swagger docs at `/docs`.
 
-### 3. Frontend Setup
+### 4. Frontend Setup
 
 ```bash
 cd concord/frontend
-
 npm install
 npm run dev
 ```
 
 Open `http://localhost:3000`.
 
----
+### 5. Smoke Tests
 
-## Sample Patient IDs
+```bash
+# Test RAG retrieval (should print matched guidelines for 6 queries)
+uv run python rag_retriever.py
 
-These are seeded in the database (from `db/02_seed.sql`):
-
-| ID | Source | Patient |
-|---|---|---|
-| CLN-001 | Clinic | Nimal Perera — has drug interaction conflict (warfarin + aspirin) |
-| CLN-002 | Clinic | Kamala Silva |
-| CLN-003 | Clinic | Sunil Fernando |
-| LAB-001 | Laboratory | N. Perera (same patient as CLN-001, matched by AI) |
-| PHM-001 | Pharmacy | Nimal P. (same patient as CLN-001, matched by AI) |
-
-Entering `CLN-001` in Agent or Verified mode will detect the warfarin/aspirin conflict and escalate it for clinician review.
-
----
-
-## The 16 Clinical Guidelines (Knowledge Base)
-
-Stored as vector embeddings in `medical_guidelines`. Covers:
-
-**Drug Interactions**
-- Warfarin + Aspirin (critical bleeding risk)
-- Methotrexate + Aspirin (toxicity)
-- ACE Inhibitor + Potassium-Sparing Diuretic (hyperkalemia)
-- Fluoxetine + Tramadol (serotonin syndrome)
-
-**Allergy Protocols**
-- Penicillin cross-reactivity with cephalosporins
-- Sulfonamide allergy conflicts
-- NSAID hypersensitivity
-- Contrast media allergy
-
-**Data Integrity Rules**
-- Blood type mismatch across sources
-- Date of birth discrepancy
-- Medication reconciliation on admission
-- Allergy documentation completeness
-- Renal dosing adjustments
-
-**Sri Lanka-Specific Rules**
-- NIC number format normalisation (old 9+V vs new 12-digit)
-- Herbal and Ayurvedic medicine interactions
-
----
-
-## Environment Variables
-
-```env
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=your_service_role_key
-GROQ_API_KEY=your_groq_api_key
+# Test LLM adjudication (2 LLM calls, JSON output)
+uv run python llm_interface.py
 ```
 
-Get Groq API key free at: [console.groq.com](https://console.groq.com)  
-Get Supabase credentials from: Project Settings → API
+---
+
+## Sample Patients (from db/02_seed.sql)
+
+| ID | Location | Patient | Pre-loaded conflict |
+|---|---|---|---|
+| CLN-001 | Clinic | Nimal Perera | Has warfarin + aspirin interaction |
+| LAB-001 | Lab | N. Perera | Blood type B+ (conflicts with CLN-001's A+) |
+| PHM-001 | Pharmacy | Nimal P. | In same cluster as CLN-001 and LAB-001 |
+| CLN-002 | Clinic | Kamala Silva | Clean record |
+| CLN-003 | Clinic | Sunil Fernando | Clean record |
 
 ---
 
-## Key Design Decisions
+## Try These in Chat
 
-**Why Groq instead of OpenAI/Gemini?**  
-Free tier with generous limits. Uses the OpenAI-compatible API format so tool calling works the same way. Gemini's free tier was exhausted by the multi-turn agent loops.
-
-**Why run agents in parallel?**  
-Identity validation and record reconciliation are independent — they don't need each other's results to start. Running them concurrently with `ThreadPoolExecutor` cuts the total wait time roughly in half.
-
-**Why local embeddings (`all-MiniLM-L6-v2`)?**  
-It runs fully offline, no API cost, and 384 dimensions is more than sufficient for clinical text similarity. The model is cached after first load.
-
-**Why Supabase + pgvector instead of a dedicated vector DB?**  
-Simplifies infrastructure — one database for both relational data (patient records, conflicts) and vector search (embeddings). The `match_records` and `match_guidelines` SQL RPCs give sub-10ms similarity search.
+```
+Show all patients
+List unresolved escalations
+Compare CLN-001 and LAB-001
+Search patients with warfarin
+Prescribe ibuprofen for CLN-001        ← triggers dengue/NSAID check
+Add medication paracetamol for CLN-001 ← no safety check (db_update)
+Update CLN-001 phone to 0771234567
+Add allergy penicillin for CLN-001
+Prescribe amoxicillin for CLN-001      ← blocked: penicillin allergy
+What are the dengue NSAID guidelines?
+```
 
 ---
 
 ## What Gets Escalated vs Resolved
 
-The LLM agent makes this call per conflict based on retrieved guidelines:
-
 | Resolved automatically | Escalated to clinician |
 |---|---|
-| Minor data discrepancies (name spelling, address format) | Drug-drug interactions (especially critical severity) |
-| Duplicate records with consistent data | Allergy conflicts with current medications |
-| Lab value differences within normal range | Blood type mismatches |
-| Address/phone mismatches | Any conflict where the LLM confidence is < 0.7 |
+| Minor name/address discrepancies | Drug-drug interactions (critical severity) |
+| Duplicate records with consistent data | Allergy conflicts with active medications |
+| Phone/address mismatches | Blood type mismatches across sources |
+| Low-confidence lab value differences | Any conflict where LLM confidence < 0.7 |
 
-Escalations are stored in the `escalations` table with a UUID and urgency level (critical / high / medium / low).
+Escalations stored with urgency: `critical` / `urgent` / `routine`.
+
+---
+
+## Key Design Decisions
+
+**Gemini + Groq instead of just one provider**  
+Gemini 2.0 Flash handles adjudication (structured JSON output). Groq handles all agentic tool loops (faster for multi-turn). Automatic failover: Gemini fails → Groq 3.3-70B → Groq 3.1-8B.
+
+**Custom agents instead of LangChain**  
+Full control over tool schemas, thresholds, and failover. No framework overhead. Each agent has a purpose-built tool set.
+
+**Local embeddings (all-MiniLM-L6-v2)**  
+Runs offline, no API cost, 384 dimensions is sufficient for clinical text. Model is cached after first load.
+
+**Supabase + pgvector instead of dedicated vector DB**  
+One database for both relational data and vector search. The `match_guidelines` SQL RPC gives sub-10ms similarity search.
+
+**Severity re-ranking in RAG**  
+A CRITICAL guideline at 0.60 similarity (score 1.20) ranks above a MEDIUM guideline at 0.70 similarity (score 0.70). Patient safety always surfaces first.
+
+**Cluster-wide notifications**  
+When a conflict involves CLN-001 and LAB-001, both locations are notified — not just the one whose chat triggered the reconciliation.
