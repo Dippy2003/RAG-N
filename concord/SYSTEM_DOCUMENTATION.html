@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Concord — System Documentation</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a2e; background: #fff; font-size: 13px; line-height: 1.6; }
+
+  /* Cover page */
+  .cover {
+    height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;
+    background: linear-gradient(135deg, #0f3460 0%, #16213e 50%, #1a1a2e 100%);
+    color: white; text-align: center; page-break-after: always;
+  }
+  .cover .logo { font-size: 72px; font-weight: 900; letter-spacing: 8px; color: #e94560; margin-bottom: 12px; }
+  .cover .subtitle { font-size: 22px; color: #a8b2d8; margin-bottom: 40px; }
+  .cover .divider { width: 80px; height: 4px; background: #e94560; margin: 20px auto; border-radius: 2px; }
+  .cover .desc { font-size: 15px; color: #ccd6f6; max-width: 600px; line-height: 1.8; }
+  .cover .meta { margin-top: 60px; font-size: 12px; color: #8892b0; }
+  .cover .badge { display: inline-block; background: rgba(233,69,96,0.2); border: 1px solid #e94560; color: #e94560; padding: 4px 14px; border-radius: 20px; font-size: 11px; margin: 4px; }
+
+  /* TOC */
+  .toc-page { padding: 60px; page-break-after: always; }
+  .toc-page h2 { font-size: 28px; color: #0f3460; margin-bottom: 30px; padding-bottom: 10px; border-bottom: 3px solid #e94560; }
+  .toc-entry { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dotted #ddd; font-size: 13px; }
+  .toc-entry .num { color: #e94560; font-weight: 700; width: 30px; }
+  .toc-entry .title { flex: 1; }
+  .toc-entry .page-ref { color: #888; font-size: 11px; }
+  .toc-section { margin-top: 20px; }
+  .toc-section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #888; margin: 16px 0 6px; }
+
+  /* Content pages */
+  .page { padding: 50px 60px; page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+
+  h1 { font-size: 26px; color: #0f3460; margin-bottom: 6px; }
+  h2 { font-size: 20px; color: #0f3460; margin: 28px 0 12px; padding-left: 12px; border-left: 4px solid #e94560; }
+  h3 { font-size: 15px; color: #16213e; margin: 20px 0 8px; }
+  h4 { font-size: 13px; color: #0f3460; margin: 14px 0 6px; font-weight: 600; }
+
+  p { margin-bottom: 10px; color: #333; }
+
+  /* Section header */
+  .section-header { background: linear-gradient(135deg, #0f3460, #16213e); color: white; padding: 16px 24px; border-radius: 8px; margin-bottom: 24px; }
+  .section-header .section-num { font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #a8b2d8; }
+  .section-header h1 { color: white; font-size: 24px; margin: 4px 0 0; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 12px; }
+  th { background: #0f3460; color: white; padding: 8px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 7px 12px; border-bottom: 1px solid #eee; vertical-align: top; }
+  tr:nth-child(even) td { background: #f8f9ff; }
+  tr:hover td { background: #f0f4ff; }
+
+  /* Code blocks */
+  pre { background: #1e1e2e; color: #cdd6f4; padding: 16px; border-radius: 8px; font-size: 11px; overflow-x: auto; margin: 12px 0; font-family: 'Consolas', monospace; line-height: 1.7; border-left: 3px solid #e94560; }
+  code { background: #f0f0f0; color: #c0392b; padding: 1px 5px; border-radius: 3px; font-family: 'Consolas', monospace; font-size: 11px; }
+
+  /* Callout boxes */
+  .callout { padding: 14px 18px; border-radius: 8px; margin: 14px 0; }
+  .callout.info { background: #e8f4fd; border-left: 4px solid #2196F3; }
+  .callout.warn { background: #fff8e1; border-left: 4px solid #FF9800; }
+  .callout.danger { background: #fdecea; border-left: 4px solid #f44336; }
+  .callout.success { background: #e8f5e9; border-left: 4px solid #4CAF50; }
+  .callout strong { display: block; margin-bottom: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  .badge.critical { background: #fdecea; color: #c0392b; }
+  .badge.high { background: #fff3e0; color: #e65100; }
+  .badge.medium { background: #fff8e1; color: #f57f17; }
+  .badge.low { background: #e8f5e9; color: #2e7d32; }
+  .badge.blue { background: #e3f2fd; color: #1565c0; }
+  .badge.green { background: #e8f5e9; color: #2e7d32; }
+  .badge.purple { background: #f3e5f5; color: #6a1b9a; }
+
+  /* Flow diagram using CSS */
+  .flow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 14px 0; }
+  .flow-box { background: #0f3460; color: white; padding: 8px 16px; border-radius: 6px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .flow-box.agent { background: #e94560; }
+  .flow-box.db { background: #2d6a4f; }
+  .flow-box.rag { background: #7b2d8b; }
+  .flow-arrow { color: #888; font-size: 18px; font-weight: 300; }
+
+  /* Grid */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 14px 0; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 14px 0; }
+  .card { background: #f8f9ff; border: 1px solid #e0e4f0; border-radius: 8px; padding: 14px; }
+  .card h4 { color: #0f3460; margin-top: 0; }
+  .card .icon { font-size: 24px; margin-bottom: 8px; }
+
+  /* Step list */
+  .step-list { counter-reset: step; }
+  .step-item { counter-increment: step; display: flex; gap: 14px; margin-bottom: 14px; }
+  .step-item::before { content: counter(step); background: #e94560; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
+  .step-item .step-content h4 { margin: 0 0 4px; }
+
+  /* Test result */
+  .test-block { background: #1e1e2e; border-radius: 8px; margin: 12px 0; overflow: hidden; }
+  .test-block .test-header { background: #2d2d3e; padding: 8px 14px; font-size: 11px; color: #a8b2d8; display: flex; justify-content: space-between; }
+  .test-block pre { border-left: none; border-radius: 0; margin: 0; }
+
+  ul { padding-left: 20px; margin-bottom: 10px; }
+  li { margin-bottom: 4px; color: #333; }
+
+  .page-num { text-align: right; font-size: 10px; color: #888; margin-top: 30px; border-top: 1px solid #eee; padding-top: 10px; }
+
+  @media print {
+    body { font-size: 12px; }
+    .cover { height: 100vh; }
+    pre { white-space: pre-wrap; word-break: break-all; }
+    .grid-2, .grid-3 { display: block; }
+    .grid-2 .card, .grid-3 .card { margin-bottom: 12px; }
+    .flow { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ COVER ═══ -->
+<div class="cover">
+  <div class="logo">CONCORD</div>
+  <div class="subtitle">Clinical Record Reconciliation System</div>
+  <div class="divider"></div>
+  <div class="desc">
+    A multi-agent AI platform for reconciling patient records across Sri Lankan healthcare providers —
+    clinics, laboratories, and pharmacies — powered by RAG-augmented LLMs, real-time conflict detection,
+    and agentic tool loops.
+  </div>
+  <div style="margin-top:40px">
+    <span class="badge">Gemini 2.0 Flash</span>
+    <span class="badge">Groq Llama 3.3-70B</span>
+    <span class="badge">Supabase</span>
+    <span class="badge">FastAPI</span>
+    <span class="badge">Next.js</span>
+    <span class="badge">RAG</span>
+  </div>
+  <div class="meta">
+    System Documentation · Version 1.0 · June 2026<br>
+    Dipna Wijesi · sahanwijesi@gmail.com
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ TOC ════ -->
+<div class="toc-page">
+  <h2>Table of Contents</h2>
+
+  <div class="toc-section">
+    <div class="toc-section-title">Overview</div>
+    <div class="toc-entry"><span class="num">1</span><span class="title">System Overview & Architecture</span><span class="page-ref">§1</span></div>
+    <div class="toc-entry"><span class="num">2</span><span class="title">Technology Stack</span><span class="page-ref">§1</span></div>
+    <div class="toc-entry"><span class="num">3</span><span class="title">Database Schema (Supabase)</span><span class="page-ref">§2</span></div>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">Backend Agents</div>
+    <div class="toc-entry"><span class="num">4</span><span class="title">Router Agent — Intent Classification</span><span class="page-ref">§3</span></div>
+    <div class="toc-entry"><span class="num">5</span><span class="title">Registration Agent — Patient Onboarding</span><span class="page-ref">§3</span></div>
+    <div class="toc-entry"><span class="num">6</span><span class="title">Reconciliation Agent — Conflict Detection</span><span class="page-ref">§4</span></div>
+    <div class="toc-entry"><span class="num">7</span><span class="title">Prescription Agent — Drug Safety</span><span class="page-ref">§4</span></div>
+    <div class="toc-entry"><span class="num">8</span><span class="title">Database Agent — CRUD Operations</span><span class="page-ref">§5</span></div>
+    <div class="toc-entry"><span class="num">9</span><span class="title">Query Agent — Data Retrieval</span><span class="page-ref">§5</span></div>
+    <div class="toc-entry"><span class="num">10</span><span class="title">LLM Interface — Adjudication & Review</span><span class="page-ref">§6</span></div>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">RAG System</div>
+    <div class="toc-entry"><span class="num">11</span><span class="title">RAG Architecture & Knowledge Base</span><span class="page-ref">§7</span></div>
+    <div class="toc-entry"><span class="num">12</span><span class="title">Clinical Guidelines (32 entries)</span><span class="page-ref">§7</span></div>
+    <div class="toc-entry"><span class="num">13</span><span class="title">RAG Retrieval Strategies per Agent</span><span class="page-ref">§8</span></div>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">Frontend</div>
+    <div class="toc-entry"><span class="num">14</span><span class="title">Frontend Architecture — Next.js Chat UI</span><span class="page-ref">§9</span></div>
+    <div class="toc-entry"><span class="num">15</span><span class="title">Role-Based Notifications</span><span class="page-ref">§9</span></div>
+    <div class="toc-entry"><span class="num">16</span><span class="title">Destructive Action Confirmation</span><span class="page-ref">§9</span></div>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-title">Testing</div>
+    <div class="toc-entry"><span class="num">17</span><span class="title">Setup & Installation</span><span class="page-ref">§10</span></div>
+    <div class="toc-entry"><span class="num">18</span><span class="title">Testing Each Component</span><span class="page-ref">§10</span></div>
+    <div class="toc-entry"><span class="num">19</span><span class="title">End-to-End Test Scenarios</span><span class="page-ref">§11</span></div>
+    <div class="toc-entry"><span class="num">20</span><span class="title">API Reference</span><span class="page-ref">§12</span></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §1 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 1</div>
+    <h1>System Overview & Architecture</h1>
+  </div>
+
+  <h2>What is Concord?</h2>
+  <p>Concord is a clinical record reconciliation system designed for the Sri Lankan healthcare ecosystem. When the same patient visits a <strong>clinic</strong>, a <strong>laboratory</strong>, and a <strong>pharmacy</strong>, each location creates its own record. These records often conflict — different spellings of a name, different blood types recorded, medications prescribed at one location that dangerously interact with medications prescribed at another.</p>
+  <p>Concord automatically <strong>detects these conflicts</strong>, uses AI to <strong>adjudicate them</strong>, flags <strong>drug interactions</strong> and <strong>allergy mismatches</strong>, and provides a <strong>chat interface</strong> that lets staff at any location query or update patient data in natural language.</p>
+
+  <h2>System Architecture</h2>
+
+  <div class="flow">
+    <div class="flow-box">User Chat</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">FastAPI /chat</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box agent">Router Agent</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box agent">Intent Handler</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box db">Supabase</div>
+  </div>
+
+  <p style="margin-top:8px">The Router Agent classifies every chat message into one of 7 intents, then dispatches to the correct specialist agent:</p>
+
+  <table>
+    <tr><th>Intent</th><th>Triggered By</th><th>Handler</th><th>Uses RAG?</th></tr>
+    <tr><td><code>register</code></td><td>"Add clinic patient:", "Register patient"</td><td>Registration Agent</td><td>No</td></tr>
+    <tr><td><code>update</code></td><td>"Update CLN-001 name to…"</td><td>Registration Agent (update)</td><td>No</td></tr>
+    <tr><td><code>prescribe</code></td><td>"Prescribe ibuprofen for CLN-001"</td><td>Prescription Agent</td><td>Yes (drug_interaction + allergy)</td></tr>
+    <tr><td><code>db_update</code></td><td>"Add medication X for CLN-001"</td><td>Database Agent</td><td>No</td></tr>
+    <tr><td><code>query</code></td><td>"Show all patients", "List escalations"</td><td>Query Agent + LLM format</td><td>Yes (chat, threshold 0.35)</td></tr>
+    <tr><td><code>reconcile</code></td><td>"Compare CLN-001 and LAB-001", "Reconcile"</td><td>Reconciliation Agent</td><td>Yes (conflict-type mapped)</td></tr>
+    <tr><td><code>chat</code></td><td>General questions</td><td>LLM with RAG context</td><td>Yes (all categories)</td></tr>
+  </table>
+
+  <h2>Technology Stack</h2>
+  <div class="grid-3">
+    <div class="card">
+      <div class="icon">⚡</div>
+      <h4>Backend</h4>
+      <ul>
+        <li>Python 3.11+</li>
+        <li>FastAPI + Uvicorn</li>
+        <li>uv (package manager)</li>
+        <li>Pydantic v2</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="icon">🤖</div>
+      <h4>AI / LLM</h4>
+      <ul>
+        <li>Gemini 2.0 Flash (primary)</li>
+        <li>Groq Llama 3.3-70B (fallback)</li>
+        <li>Groq Llama 3.1-8B (rate-limit fallback)</li>
+        <li>all-MiniLM-L6-v2 (embeddings)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="icon">🗄️</div>
+      <h4>Database</h4>
+      <ul>
+        <li>Supabase (PostgreSQL)</li>
+        <li>pgvector extension</li>
+        <li>match_guidelines RPC</li>
+        <li>Row Level Security</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="icon">🌐</div>
+      <h4>Frontend</h4>
+      <ul>
+        <li>Next.js 14 (App Router)</li>
+        <li>TypeScript</li>
+        <li>Tailwind CSS</li>
+        <li>React hooks</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="icon">📚</div>
+      <h4>RAG</h4>
+      <ul>
+        <li>Sentence Transformers</li>
+        <li>32 clinical guidelines</li>
+        <li>Category + threshold filtering</li>
+        <li>Severity re-ranking</li>
+      </ul>
+    </div>
+    <div class="card">
+      <div class="icon">🔔</div>
+      <h4>Notifications</h4>
+      <ul>
+        <li>Role-based filtering</li>
+        <li>Cluster-wide propagation</li>
+        <li>Per-location bell</li>
+        <li>Real-time polling</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="page-num">Section 1 — System Overview</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §2 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 2</div>
+    <h1>Database Schema (Supabase)</h1>
+  </div>
+
+  <h2>Tables</h2>
+
+  <h3>source_records — Patient Records</h3>
+  <table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>id</code></td><td>uuid</td><td>Primary key</td></tr>
+    <tr><td><code>source_ref_id</code></td><td>text</td><td>Human ID: CLN-001, LAB-001, PHM-001</td></tr>
+    <tr><td><code>source</code></td><td>text</td><td>CLINIC | LAB | PHARMACY</td></tr>
+    <tr><td><code>name</code></td><td>text</td><td>Patient full name</td></tr>
+    <tr><td><code>dob</code></td><td>text</td><td>Date of birth</td></tr>
+    <tr><td><code>nic</code></td><td>text</td><td>National ID number</td></tr>
+    <tr><td><code>phone</code></td><td>text</td><td>Phone number</td></tr>
+    <tr><td><code>address</code></td><td>text</td><td>Home address</td></tr>
+    <tr><td><code>blood_type</code></td><td>text</td><td>A+, B-, O+, etc.</td></tr>
+    <tr><td><code>medications</code></td><td>text[]</td><td>Array of current medications</td></tr>
+    <tr><td><code>allergies</code></td><td>text[]</td><td>Array of known allergies</td></tr>
+    <tr><td><code>cluster_id</code></td><td>uuid</td><td>Links same patient across locations</td></tr>
+    <tr><td><code>embedding</code></td><td>vector(384)</td><td>For patient matching (all-MiniLM-L6-v2)</td></tr>
+    <tr><td><code>created_at</code></td><td>timestamptz</td><td>Auto-set</td></tr>
+  </table>
+
+  <h3>patient_clusters — Cross-Location Links</h3>
+  <table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>id</code></td><td>uuid</td><td>Cluster ID (shared by all same-patient records)</td></tr>
+    <tr><td><code>canonical_name</code></td><td>text</td><td>Resolved patient name</td></tr>
+    <tr><td><code>status</code></td><td>text</td><td>active | resolved | escalated</td></tr>
+    <tr><td><code>created_at</code></td><td>timestamptz</td><td></td></tr>
+  </table>
+
+  <h3>detected_conflicts</h3>
+  <table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>id</code></td><td>uuid</td><td></td></tr>
+    <tr><td><code>cluster_id</code></td><td>uuid</td><td>FK → patient_clusters</td></tr>
+    <tr><td><code>conflict_type</code></td><td>text</td><td>drug_interaction | allergy_mismatch | data_integrity</td></tr>
+    <tr><td><code>field</code></td><td>text</td><td>Which field conflicts</td></tr>
+    <tr><td><code>source_a / source_b</code></td><td>text</td><td>Locations involved</td></tr>
+    <tr><td><code>value_a / value_b</code></td><td>text</td><td>Conflicting values</td></tr>
+    <tr><td><code>description</code></td><td>text</td><td>Human-readable conflict description</td></tr>
+    <tr><td><code>resolved</code></td><td>bool</td><td>false until adjudicated</td></tr>
+  </table>
+
+  <h3>escalations</h3>
+  <table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>id</code></td><td>uuid</td><td></td></tr>
+    <tr><td><code>cluster_id</code></td><td>uuid</td><td></td></tr>
+    <tr><td><code>field</code></td><td>text</td><td></td></tr>
+    <tr><td><code>reason</code></td><td>text</td><td>Why it was escalated</td></tr>
+    <tr><td><code>urgency</code></td><td>text</td><td>routine | urgent | critical</td></tr>
+    <tr><td><code>status</code></td><td>text</td><td>open | resolved</td></tr>
+  </table>
+
+  <h3>notifications</h3>
+  <table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>id</code></td><td>uuid</td><td></td></tr>
+    <tr><td><code>source_ref_id</code></td><td>text</td><td>CLN-001 / LAB-001 / PHM-001 (recipient)</td></tr>
+    <tr><td><code>message</code></td><td>text</td><td>Notification body</td></tr>
+    <tr><td><code>type</code></td><td>text</td><td>conflict | escalation | prescription | info</td></tr>
+    <tr><td><code>read</code></td><td>bool</td><td>false = unread (shows badge)</td></tr>
+    <tr><td><code>created_at</code></td><td>timestamptz</td><td></td></tr>
+  </table>
+
+  <h3>prescriptions</h3>
+  <table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>id</code></td><td>uuid</td><td></td></tr>
+    <tr><td><code>source_ref_id</code></td><td>text</td><td>Patient ID</td></tr>
+    <tr><td><code>drug</code></td><td>text</td><td></td></tr>
+    <tr><td><code>dosage</code></td><td>text</td><td></td></tr>
+    <tr><td><code>status</code></td><td>text</td><td>active | blocked | cancelled</td></tr>
+    <tr><td><code>notes</code></td><td>text</td><td>Reason if blocked</td></tr>
+    <tr><td><code>created_at</code></td><td>timestamptz</td><td></td></tr>
+  </table>
+
+  <h3>medical_guidelines (RAG knowledge base)</h3>
+  <table>
+    <tr><th>Column</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>id</code></td><td>uuid</td><td></td></tr>
+    <tr><td><code>guideline_id</code></td><td>text</td><td>DI-001, AL-001, LK-001, PD-001, etc.</td></tr>
+    <tr><td><code>category</code></td><td>text</td><td>drug_interaction | allergy_mismatch | data_integrity</td></tr>
+    <tr><td><code>title</code></td><td>text</td><td></td></tr>
+    <tr><td><code>content</code></td><td>text</td><td>Full guideline text</td></tr>
+    <tr><td><code>severity</code></td><td>text</td><td>critical | high | medium | low</td></tr>
+    <tr><td><code>tags</code></td><td>text</td><td>Comma-separated drug/allergy tags</td></tr>
+    <tr><td><code>embedding</code></td><td>vector(384)</td><td>For similarity search</td></tr>
+  </table>
+
+  <div class="callout info">
+    <strong>Supabase RPC: match_guidelines</strong>
+    The <code>match_guidelines(query_embedding, match_threshold, match_count)</code> function performs a pgvector cosine-similarity search over <code>medical_guidelines.embedding</code>. It must be created in Supabase's SQL editor before the RAG system works.
+  </div>
+
+  <div class="page-num">Section 2 — Database Schema</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §3 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 3</div>
+    <h1>Router Agent & Registration Agent</h1>
+  </div>
+
+  <h2>Router Agent (<code>router_agent.py</code>)</h2>
+  <p>Every chat message passes through the Router Agent first. It uses a Groq LLM call to classify the intent and extract structured parameters.</p>
+
+  <h3>Intent Classification Rules</h3>
+  <table>
+    <tr><th>Intent</th><th>Keywords</th><th>Output params</th></tr>
+    <tr><td><code>register</code></td><td>"add clinic patient", "register patient", "add pharmacy patient"</td><td>source, name, dob, nic, phone, address, blood_type, medications, allergies</td></tr>
+    <tr><td><code>update</code></td><td>"update [ID]", "change [ID]", "set [ID]"</td><td>source_ref_id, field updates</td></tr>
+    <tr><td><code>prescribe</code></td><td>"prescribe", "issue prescription"</td><td>source_ref_id, drug, dosage, notes</td></tr>
+    <tr><td><code>db_update</code></td><td>"add medication", "remove medication", "add allergy", "delete", "resolve escalation"</td><td>source_ref_id, operation details</td></tr>
+    <tr><td><code>query</code></td><td>"show", "list", "find", "search", "history"</td><td>query_type, source_ref_id, filter, source</td></tr>
+    <tr><td><code>reconcile</code></td><td>"compare", "reconcile", "check conflicts between"</td><td>source_ref_ids (list)</td></tr>
+    <tr><td><code>chat</code></td><td>General questions</td><td>message only</td></tr>
+  </table>
+
+  <div class="callout warn">
+    <strong>Critical Distinction: prescribe vs db_update</strong>
+    "Add medication warfarin for CLN-001" → <strong>db_update</strong> (just appends to array, no safety check)<br>
+    "Prescribe warfarin for CLN-001" → <strong>prescribe</strong> (runs full RAG interaction check first)
+  </div>
+
+  <h3>Router Output Schema</h3>
+  <pre>{
+  "intent": "prescribe",
+  "source_ref_id": "CLN-001",
+  "drug": "warfarin",
+  "dosage": "5mg once daily",
+  "notes": ""
+}</pre>
+
+  <h3>Multi-Patient Extraction</h3>
+  <p>For reconcile intents, all patient IDs are extracted from a single message:</p>
+  <pre>_id_matches = list(dict.fromkeys(
+    m.upper() for m in re.findall(r'\b(CLN|LAB|PHM)-\d+\b', message)
+))
+# "Compare CLN-001 and LAB-001" → ["CLN-001", "LAB-001"]</pre>
+
+  <h2>Registration Agent (<code>registration_agent.py</code>)</h2>
+  <p>Handles patient creation and demographic updates.</p>
+
+  <h3>Registration Flow</h3>
+  <div class="step-list">
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Validate source prefix</h4>
+        <p>CLN → CLINIC, LAB → LAB, PHM → PHARMACY. Auto-generate source_ref_id (e.g. CLN-003).</p>
+      </div>
+    </div>
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Insert into source_records</h4>
+        <p>Write all demographic fields, medications array, allergies array.</p>
+      </div>
+    </div>
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Generate embedding</h4>
+        <p>Call <code>re_embed_record(source_ref_id)</code> — encodes name+dob+nic+phone+address into a 384-dim vector using all-MiniLM-L6-v2.</p>
+      </div>
+    </div>
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Find or create cluster</h4>
+        <p>Run cosine similarity search against all existing embeddings. If similarity ≥ 0.85, link to existing cluster. Otherwise, create a new cluster.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>Update Flow</h3>
+  <p>When demographic fields (name, dob, nic, phone, address) change, the record is <strong>re-embedded</strong> so the patient matching system stays accurate.</p>
+  <pre>if updates.keys() & {"name", "dob", "nic", "phone", "address"}:
+    re_embed_record(source_ref_id)   # updates embedding vector in Supabase</pre>
+
+  <div class="page-num">Section 3 — Router & Registration Agent</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §4 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 4</div>
+    <h1>Reconciliation Agent & Prescription Agent</h1>
+  </div>
+
+  <h2>Reconciliation Agent (<code>agent.py</code>)</h2>
+  <p>When two or more patient records are compared, the Reconciliation Agent finds conflicts and adjudicates them using AI.</p>
+
+  <h3>Reconciliation Pipeline</h3>
+  <div class="step-list">
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Load all records</h4>
+        <p>Fetches each source_ref_id's full record from source_records.</p>
+      </div>
+    </div>
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Detect conflicts</h4>
+        <p>Compares fields pairwise. Flags: name mismatches, DOB differences, blood type conflicts, medication interactions, allergy vs prescription mismatches.</p>
+      </div>
+    </div>
+    <div class="step-item">
+      <div class="step-content">
+        <h4>RAG lookup per conflict</h4>
+        <p>For each conflict, calls <code>retrieve_for_conflict(description, conflict_type)</code> to get relevant clinical guidelines. Conflict type maps to the correct RAG category.</p>
+      </div>
+    </div>
+    <div class="step-item">
+      <div class="step-content">
+        <h4>LLM Adjudication (Call 1)</h4>
+        <p>Sends all conflicts + RAG guidelines to Gemini 2.0 Flash. Returns a resolution (accept_a / accept_b / escalate / flag_critical) with rationale and confidence for each conflict.</p>
+      </div>
+    </div>
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Safety Review (Call 2)</h4>
+        <p>Sends proposed resolutions to LLM for a second safety pass. Flags anything needing human clinician review.</p>
+      </div>
+    </div>
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Write to DB + Notify ALL locations</h4>
+        <p>Writes resolutions to adjudications table, escalations if needed. Creates a notification for <strong>every source_ref_id in the same cluster</strong> — not just the one being queried.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>Conflict Types</h3>
+  <table>
+    <tr><th>conflict_type</th><th>RAG Category</th><th>Example</th></tr>
+    <tr><td>drug_interaction</td><td>drug_interaction</td><td>Warfarin (clinic) + Aspirin (pharmacy)</td></tr>
+    <tr><td>allergy_mismatch</td><td>allergy_mismatch</td><td>Penicillin allergy + Amoxicillin prescribed</td></tr>
+    <tr><td>data_integrity</td><td>data_integrity</td><td>Blood type A+ (clinic) vs B+ (lab)</td></tr>
+  </table>
+
+  <h3>Reconciliation Cache</h3>
+  <p>Results are cached for 5 minutes (TTL dict <code>_recon_cache</code>). Cache is invalidated immediately when:</p>
+  <ul>
+    <li>A patient record is updated</li>
+    <li>A prescription is issued</li>
+    <li>A db_update operation runs</li>
+  </ul>
+
+  <h2>Prescription Agent (<code>prescription_agent.py</code>)</h2>
+  <p>An agentic tool loop (max 8 turns) that safely issues or blocks prescriptions.</p>
+
+  <h3>Tool Loop</h3>
+  <table>
+    <tr><th>Tool</th><th>Purpose</th></tr>
+    <tr><td><code>get_patient_record</code></td><td>Fetch current medications and allergies</td></tr>
+    <tr><td><code>check_interaction</code></td><td>RAG search for drug-drug + allergy conflicts</td></tr>
+    <tr><td><code>issue_prescription</code></td><td>Add drug to medications array + log in prescriptions table</td></tr>
+    <tr><td><code>block_prescription</code></td><td>Record blocked attempt with reason in prescriptions table</td></tr>
+  </table>
+
+  <h3>Interaction Check Logic</h3>
+  <pre>guidelines = retrieve_for_prescription(new_drug, existing_medications, allergies, top_k=6)
+# Category: drug_interaction + allergy_mismatch
+# Threshold: 0.30
+# Keyword: first word of drug name
+
+# Direct allergy match
+allergy_hit = [a for a in allergies if a.lower() in drug_lower or drug_lower in a.lower()]
+
+# Guidelines relevance: must mention new_drug AND (existing_med OR allergy)
+drug_mentioned = any(w in guideline_text for w in drug_words)
+med_mentioned  = any(w in guideline_text for w in existing_med_words)
+
+safe_to_prescribe = len(interaction_guidelines) == 0 and len(allergy_hit) == 0</pre>
+
+  <h3>Deduplication</h3>
+  <pre># Don't add the same drug twice (case-insensitive partial match)
+already_present = any(drug.lower() in str(m).lower() for m in current_meds)</pre>
+
+  <div class="page-num">Section 4 — Reconciliation & Prescription Agents</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §5 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 5</div>
+    <h1>Database Agent & Query Agent</h1>
+  </div>
+
+  <h2>Database Agent (<code>database_agent.py</code>)</h2>
+  <p>Handles all write/delete operations through an agentic tool loop (max 10 turns). This is the agent for <code>db_update</code> intent — update any table in Supabase via natural language.</p>
+
+  <h3>Available Tools</h3>
+  <table>
+    <tr><th>Tool</th><th>Operation</th><th>Auto Re-embeds?</th></tr>
+    <tr><td><code>find_patient</code></td><td>Look up patient by source_ref_id or name</td><td>No</td></tr>
+    <tr><td><code>update_source_record</code></td><td>Update any demographic field</td><td>Yes (if name/dob/nic/phone/address)</td></tr>
+    <tr><td><code>add_medication</code></td><td>Append drug to medications array</td><td>No</td></tr>
+    <tr><td><code>remove_medication</code></td><td>Remove drug from medications array</td><td>No</td></tr>
+    <tr><td><code>add_allergy</code></td><td>Append to allergies array</td><td>No</td></tr>
+    <tr><td><code>remove_allergy</code></td><td>Remove from allergies array</td><td>No</td></tr>
+    <tr><td><code>update_cluster</code></td><td>Update patient_clusters (auto-resolves cluster_id from source_ref_id)</td><td>No</td></tr>
+    <tr><td><code>resolve_escalation</code></td><td>Set escalation status to resolved</td><td>No</td></tr>
+    <tr><td><code>reopen_escalation</code></td><td>Set escalation status back to open</td><td>No</td></tr>
+    <tr><td><code>update_prescription</code></td><td>Change prescription status/dosage/notes</td><td>No</td></tr>
+    <tr><td><code>delete_patient</code></td><td>Delete source_records row</td><td>No</td></tr>
+    <tr><td><code>delete_prescription</code></td><td>Delete prescriptions row</td><td>No</td></tr>
+    <tr><td><code>delete_notification</code></td><td>Delete notifications row</td><td>No</td></tr>
+    <tr><td><code>done</code></td><td>Signal completion to the loop</td><td>No</td></tr>
+  </table>
+
+  <h3>Cluster ID Resolution</h3>
+  <p>Users don't know cluster IDs. When <code>update_cluster</code> is called with a <code>source_ref_id</code>, the agent automatically resolves it:</p>
+  <pre>resp = sb.table("source_records")
+        .select("cluster_id")
+        .eq("source_ref_id", source_ref_id)
+        .execute()
+cluster_id = resp.data[0]["cluster_id"]   # auto-resolved</pre>
+
+  <h3>Result Schema</h3>
+  <pre>@dataclass
+class DbUpdateResult:
+    action: str        # "db_updated" | "db_deleted" | "db_error"
+    message: str       # human-readable summary
+    rows_affected: int
+    details: dict      # operation-specific detail</pre>
+
+  <h2>Query Agent (<code>query_agent.py</code>)</h2>
+  <p>Non-agentic (pure function). Dispatches to typed DB queries based on <code>query_type</code>.</p>
+
+  <h3>Query Types</h3>
+  <table>
+    <tr><th>query_type</th><th>Query</th><th>Example trigger</th></tr>
+    <tr><td><code>all_patients</code></td><td>All source_records rows</td><td>"Show all patients"</td></tr>
+    <tr><td><code>prescriptions</code></td><td>prescriptions table (optionally filtered by source_ref_id)</td><td>"Show prescriptions for CLN-001"</td></tr>
+    <tr><td><code>escalations</code></td><td>escalations table, filtered by status</td><td>"List unresolved escalations"</td></tr>
+    <tr><td><code>medications</code></td><td>medications array for a patient</td><td>"What medications does CLN-001 have?"</td></tr>
+    <tr><td><code>allergies</code></td><td>allergies array for a patient</td><td>"List allergies for PHM-001"</td></tr>
+    <tr><td><code>notifications</code></td><td>notifications table (filtered by source_ref_id prefix)</td><td>"Show my notifications"</td></tr>
+    <tr><td><code>search</code></td><td>Name + blood_type + medications/allergies fuzzy search</td><td>"Search patients with warfarin"</td></tr>
+  </table>
+
+  <h3>Search Implementation</h3>
+  <pre>def _search(filter_val: str) -> QueryResult:
+    # Name search
+    rows = sb.table("source_records").select("*")
+             .ilike("name", f"%{filter_val}%").execute().data
+    # Blood type
+    rows += sb.table("source_records").select("*")
+              .ilike("blood_type", f"%{filter_val}%").execute().data
+    # Medications/allergies contains (Postgres @> operator)
+    rows += sb.table("source_records").select("*")
+              .contains("medications", [filter_val]).execute().data</pre>
+
+  <div class="callout info">
+    <strong>Query + LLM formatting</strong>
+    After the Query Agent returns raw rows, the API passes them to the LLM with <code>retrieve_for_chat()</code> RAG context to generate a human-readable response. The user sees a formatted summary, not raw JSON.
+  </div>
+
+  <div class="page-num">Section 5 — Database & Query Agents</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §6 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 6</div>
+    <h1>LLM Interface — Adjudication & Safety Review</h1>
+  </div>
+
+  <h2>Overview</h2>
+  <p>The LLM Interface (<code>llm_interface.py</code>) wraps all LLM calls behind a single transport layer with automatic failover. Exactly 2 LLM calls are made per reconciliation run.</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <h4>LLM Call 1 — Adjudication</h4>
+      <p>Function: <code>adjudicate(conflicts, guidelines_context)</code></p>
+      <p>Input: list of conflicts + RAG guidelines context</p>
+      <p>Output: <code>AdjudicationResult</code> — one resolution per conflict</p>
+    </div>
+    <div class="card">
+      <h4>LLM Call 2 — Safety Review</h4>
+      <p>Function: <code>review_actions(adjudication, original_conflicts)</code></p>
+      <p>Input: proposed resolutions + original conflicts</p>
+      <p>Output: <code>EscalationReview</code> — which resolutions need human eyes</p>
+    </div>
+  </div>
+
+  <h2>Failover Chain</h2>
+  <div class="flow">
+    <div class="flow-box">Gemini 2.0 Flash</div>
+    <div class="flow-arrow">fails →</div>
+    <div class="flow-box">Groq Llama 3.3-70B</div>
+    <div class="flow-arrow">rate limit →</div>
+    <div class="flow-box">Groq Llama 3.1-8B</div>
+  </div>
+
+  <h2>Response Schemas (Pydantic)</h2>
+
+  <h3>ConflictResolution</h3>
+  <table>
+    <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>conflict_type</code></td><td>str</td><td>drug_interaction | allergy_mismatch | data_integrity</td></tr>
+    <tr><td><code>field</code></td><td>str</td><td>Which field was resolved</td></tr>
+    <tr><td><code>action</code></td><td>ConflictAction</td><td>accept_a | accept_b | escalate | flag_critical</td></tr>
+    <tr><td><code>chosen_value</code></td><td>str | None</td><td>null when escalated</td></tr>
+    <tr><td><code>rationale</code></td><td>str</td><td>≤2 sentence explanation</td></tr>
+    <tr><td><code>confidence</code></td><td>float 0–1</td><td>Clamped by validator</td></tr>
+  </table>
+
+  <h3>ConflictAction Enum</h3>
+  <table>
+    <tr><th>Value</th><th>Meaning</th></tr>
+    <tr><td><code>accept_a</code></td><td>Take source_a's value as ground truth</td></tr>
+    <tr><td><code>accept_b</code></td><td>Take source_b's value as ground truth</td></tr>
+    <tr><td><code>escalate</code></td><td>Cannot resolve automatically — flag for human review</td></tr>
+    <tr><td><code>flag_critical</code></td><td>Resolved but patient safety risk — notify clinician</td></tr>
+  </table>
+
+  <h3>EscalationReview</h3>
+  <table>
+    <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>approved_actions</code></td><td>list[str]</td><td>Fields whose resolutions look safe</td></tr>
+    <tr><td><code>escalations</code></td><td>list[EscalationItem]</td><td>Items needing human review</td></tr>
+    <tr><td><code>overall_safe</code></td><td>bool</td><td>True if no critical escalations</td></tr>
+  </table>
+
+  <h2>Auto-RAG in Adjudication</h2>
+  <p>If <code>guidelines_context</code> is not passed, the adjudicator auto-fetches guidelines for each conflict:</p>
+  <pre>if not guidelines_context:
+    for c in conflicts:
+        query = f"{c.get('description')} {c.get('field')} {c.get('value_a')} {c.get('value_b')}"
+        results = retrieve_for_conflict(query, conflict_type=c.get("conflict_type"))
+        # deduplicate by guideline_id
+        for g in results:
+            if g["guideline_id"] not in seen_ids:
+                all_guidelines.append(g)
+    guidelines_context = format_guidelines_context(all_guidelines)</pre>
+
+  <h2>Prompt Injection</h2>
+  <p>The RAG context is injected into the adjudication prompt as a clearly labelled block:</p>
+  <pre>RELEVANT CLINICAL GUIDELINES (use these to inform resolutions):
+[1] [CRITICAL] Warfarin + Aspirin Interaction (relevance: 87.3%)
+    Co-administration causes significantly increased bleeding risk...
+
+[2] [HIGH] NSAIDs and Anticoagulants (relevance: 79.1%)
+    ...
+
+CONFLICTS:
+[{ "conflict_type": "drug_interaction", ... }]</pre>
+
+  <div class="page-num">Section 6 — LLM Interface</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §7 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 7</div>
+    <h1>RAG System — Knowledge Base & Retrieval</h1>
+  </div>
+
+  <h2>Architecture</h2>
+  <p>The RAG (Retrieval-Augmented Generation) system provides clinical guidelines context to the AI agents at the moment of decision-making. Rather than baking clinical knowledge into the LLM prompt, it is retrieved dynamically based on the specific drugs, conflicts, or queries at hand.</p>
+
+  <div class="flow">
+    <div class="flow-box">User query / conflict</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box rag">Embed (all-MiniLM-L6-v2)</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box db">pgvector cosine search</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box rag">Category filter + rerank</div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-box">LLM prompt</div>
+  </div>
+
+  <h2>Per-Use-Case Thresholds & Categories</h2>
+  <table>
+    <tr><th>Use case</th><th>Function</th><th>Threshold</th><th>Categories</th><th>Rerank?</th></tr>
+    <tr><td>Prescription safety</td><td><code>retrieve_for_prescription</code></td><td>0.30</td><td>drug_interaction + allergy_mismatch</td><td>Yes</td></tr>
+    <tr><td>Conflict resolution</td><td><code>retrieve_for_conflict</code></td><td>0.25</td><td>Mapped from conflict_type</td><td>Yes</td></tr>
+    <tr><td>General chat</td><td><code>retrieve_for_chat</code></td><td>0.35</td><td>All</td><td>Yes</td></tr>
+  </table>
+
+  <h2>Severity Re-ranking</h2>
+  <p>Results are re-ranked by <code>score = similarity × severity_weight</code>, so critical guidelines surface above medium ones even at slightly lower cosine similarity:</p>
+  <table>
+    <tr><th>Severity</th><th>Weight</th><th>Effect</th></tr>
+    <tr><td><span class="badge critical">critical</span></td><td>2.0×</td><td>A 0.60 similarity becomes score 1.20</td></tr>
+    <tr><td><span class="badge high">high</span></td><td>1.5×</td><td>A 0.60 similarity becomes score 0.90</td></tr>
+    <tr><td><span class="badge medium">medium</span></td><td>1.0×</td><td>Score = similarity</td></tr>
+    <tr><td><span class="badge low">low</span></td><td>0.7×</td><td>A 0.60 similarity becomes score 0.42</td></tr>
+  </table>
+
+  <h2>Knowledge Base — All 32 Guidelines</h2>
+
+  <h3>Drug Interactions (DI-)</h3>
+  <table>
+    <tr><th>ID</th><th>Title</th><th>Severity</th></tr>
+    <tr><td>DI-001</td><td>Warfarin + Aspirin Interaction</td><td><span class="badge critical">critical</span></td></tr>
+    <tr><td>DI-002</td><td>Penicillin Allergy Cross-reactivity with Cephalosporins</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>DI-003</td><td>ACE Inhibitor + Potassium-sparing Diuretics</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>DI-004</td><td>SSRI + MAOI Combination — Serotonin Syndrome</td><td><span class="badge critical">critical</span></td></tr>
+    <tr><td>DI-005</td><td>Metformin Contraindication with IV Contrast Media</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>DI-006</td><td>Digoxin Toxicity Risk</td><td><span class="badge critical">critical</span></td></tr>
+    <tr><td>DI-007</td><td>Statins + Macrolide Antibiotics — Rhabdomyolysis Risk</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>DI-008</td><td>Clopidogrel + Omeprazole (CYP2C19 Interaction)</td><td><span class="badge medium">medium</span></td></tr>
+    <tr><td>DI-009</td><td>Opioids + Benzodiazepines — Fatal Respiratory Depression</td><td><span class="badge critical">critical</span></td></tr>
+    <tr><td>DI-010</td><td>Ciprofloxacin Absorption Impaired by Antacids/Iron</td><td><span class="badge medium">medium</span></td></tr>
+    <tr><td>DI-011</td><td>Insulin/Metformin + Alcohol — Severe Hypoglycaemia</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>DI-012</td><td>Amoxicillin + Methotrexate — Toxicity Risk</td><td><span class="badge high">high</span></td></tr>
+  </table>
+
+  <h3>Sri Lanka–Specific (LK-)</h3>
+  <table>
+    <tr><th>ID</th><th>Title</th><th>Severity</th></tr>
+    <tr><td>LK-001</td><td>Ayurvedic + Western Drug Interactions</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>LK-002</td><td>Dengue Fever — NSAIDs Contraindicated</td><td><span class="badge critical">critical</span></td></tr>
+    <tr><td>LK-003</td><td>Malaria Treatment in G6PD-deficient Patients</td><td><span class="badge critical">critical</span></td></tr>
+    <tr><td>LK-004</td><td>Sri Lanka National Diabetes Guidelines</td><td><span class="badge medium">medium</span></td></tr>
+    <tr><td>LK-005</td><td>Sri Lanka NMRA Essential Medicines List</td><td><span class="badge low">low</span></td></tr>
+    <tr><td>LK-006</td><td>Ayurvedic Herbs — Extended Interactions</td><td><span class="badge medium">medium</span></td></tr>
+  </table>
+
+  <h3>Allergy Protocols (AL-)</h3>
+  <table>
+    <tr><th>ID</th><th>Title</th><th>Severity</th></tr>
+    <tr><td>AL-001</td><td>Penicillin Allergy — Full Protocol</td><td><span class="badge critical">critical</span></td></tr>
+    <tr><td>AL-002</td><td>Sulfonamide Allergy Cross-reactivity</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>AL-003</td><td>NSAID/Aspirin Hypersensitivity</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>AL-004</td><td>Contrast Media Allergy Premedication</td><td><span class="badge medium">medium</span></td></tr>
+    <tr><td>AL-005</td><td>Latex Allergy and Latex-Fruit Syndrome</td><td><span class="badge medium">medium</span></td></tr>
+    <tr><td>AL-006</td><td>Aspirin Allergy — Paracetamol Safety Confirmation</td><td><span class="badge low">low</span></td></tr>
+    <tr><td>AL-007</td><td>Egg Allergy and Propofol/Vaccine Safety</td><td><span class="badge medium">medium</span></td></tr>
+    <tr><td>AL-008</td><td>Shellfish Allergy — Contrast Media Myth</td><td><span class="badge low">low</span></td></tr>
+  </table>
+
+  <h3>Data Integrity (DT-), Paediatric (PD-), Pregnancy (PG-), Renal (RN-), Hepatic (HP-)</h3>
+  <table>
+    <tr><th>ID</th><th>Title</th><th>Severity</th></tr>
+    <tr><td>DT-001</td><td>Blood Type Conflict Resolution Protocol</td><td><span class="badge critical">critical</span></td></tr>
+    <tr><td>DT-002</td><td>Patient Identity Matching Thresholds</td><td><span class="badge medium">medium</span></td></tr>
+    <tr><td>DT-003</td><td>Renal Dosing Adjustments (Extended)</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>DT-004</td><td>Hepatic Impairment — Drug Contraindications</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>PD-001</td><td>Paediatric Weight-Based Dosing Guidelines</td><td><span class="badge high">high</span></td></tr>
+    <tr><td>PD-002</td><td>Paediatric Age Restrictions (Aspirin, Codeine, etc.)</td><td><span class="badge critical">critical</span></td></tr>
+    <tr><td>PG-001</td><td>Pregnancy Category D/X Contraindications</td><td><span class="badge critical">critical</span></td></tr>
+    <tr><td>PG-002</td><td>Safe Medications in Pregnancy</td><td><span class="badge medium">medium</span></td></tr>
+  </table>
+
+  <div class="page-num">Section 7 — RAG System</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §8 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 8</div>
+    <h1>RAG Retrieval Strategies per Agent</h1>
+  </div>
+
+  <h2>retrieve_for_prescription</h2>
+  <pre>def retrieve_for_prescription(drug, existing_meds, allergies, top_k=5):
+    query = f"Prescribing {drug} — interactions with {med_str}. Patient allergies: {allergy_str}."
+
+    # Fetch drug interactions (uses first word of drug name as keyword hint)
+    drug_results = retrieve_guidelines(query, top_k=5, threshold=0.30,
+                                       category="drug_interaction",
+                                       keyword=drug.split()[0].lower())
+
+    # Fetch allergy guidelines
+    allergy_results = retrieve_guidelines(query, top_k=3, threshold=0.30,
+                                          category="allergy_mismatch")
+
+    # Merge, deduplicate by guideline_id, sort by score desc
+    return merged[:top_k]</pre>
+
+  <h2>retrieve_for_conflict</h2>
+  <pre>def retrieve_for_conflict(conflict_description, conflict_type="", top_k=4):
+    category_map = {
+        "drug_interaction": "drug_interaction",
+        "allergy_mismatch": "allergy_mismatch",
+        "data_integrity":   "data_integrity",
+    }
+    category = category_map.get(conflict_type, "")   # "" = all categories
+
+    return retrieve_guidelines(conflict_description, top_k=4,
+                               threshold=0.25, category=category)</pre>
+
+  <h2>retrieve_for_chat</h2>
+  <pre>def retrieve_for_chat(query, top_k=4):
+    return retrieve_guidelines(query, top_k=4, threshold=0.35)
+    # Higher threshold → only inject guidelines when confident they're relevant</pre>
+
+  <h2>Hybrid Search (keyword pre-filter)</h2>
+  <p>The <code>keyword</code> parameter applies a post-vector-search tag filter. For example, when prescribing "metformin", the keyword hint "metformin" filters out guidelines that don't mention metformin in their tags or title — preventing false positives from other unrelated diabetes drugs.</p>
+  <pre>if keyword:
+    kw = keyword.lower()
+    rows = [r for r in rows
+            if kw in (r.get("tags") or "").lower() or kw in r.get("title", "").lower()]</pre>
+
+  <h2>format_guidelines_context — Output Format</h2>
+  <pre>RELEVANT CLINICAL GUIDELINES (retrieved via RAG):
+
+[1] [CRITICAL] Dengue Fever — NSAIDs Contraindicated (relevance: 91.2%)
+    Ibuprofen, aspirin, and other NSAIDs are absolutely contraindicated in dengue fever...
+
+[2] [HIGH] NSAID/Aspirin Hypersensitivity (relevance: 73.4%)
+    Patients with aspirin hypersensitivity should avoid all NSAIDs...</pre>
+
+  <h2>match_guidelines Supabase RPC (SQL)</h2>
+  <p>This PostgreSQL function must exist in your Supabase database:</p>
+  <pre>CREATE OR REPLACE FUNCTION match_guidelines(
+  query_embedding vector(384),
+  match_threshold float,
+  match_count int
+)
+RETURNS TABLE (
+  id uuid,
+  guideline_id text,
+  category text,
+  title text,
+  content text,
+  severity text,
+  tags text,
+  similarity float
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    mg.id, mg.guideline_id, mg.category, mg.title, mg.content,
+    mg.severity, mg.tags,
+    1 - (mg.embedding <=> query_embedding) AS similarity
+  FROM medical_guidelines mg
+  WHERE 1 - (mg.embedding <=> query_embedding) > match_threshold
+  ORDER BY similarity DESC
+  LIMIT match_count;
+END;
+$$;</pre>
+
+  <div class="page-num">Section 8 — RAG Retrieval Strategies</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §9 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 9</div>
+    <h1>Frontend — Next.js Chat UI</h1>
+  </div>
+
+  <h2>Component Overview</h2>
+  <p>The frontend is a single-page Next.js 14 application (<code>app/page.tsx</code>). It communicates with the FastAPI backend over HTTP.</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <h4>Chat Interface</h4>
+      <ul>
+        <li>Message input + send button</li>
+        <li>Message history with role badges</li>
+        <li>Action cards per intent type</li>
+        <li>Quick-start message starters</li>
+        <li>Loading indicator during API calls</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Notification Bell</h4>
+      <ul>
+        <li>Unread count badge</li>
+        <li>Dropdown list of notifications</li>
+        <li>Per-notification ✕ delete button</li>
+        <li>"Clear all" button</li>
+        <li>Polls every 15 seconds</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Role-Based Notifications</h2>
+  <p>A role selector in the header lets the user switch between locations. Notifications are filtered server-side by the <code>source</code> prefix:</p>
+
+  <table>
+    <tr><th>Role</th><th>Prefix filter</th><th>Color</th><th>Sees</th></tr>
+    <tr><td>ALL</td><td>(none)</td><td>Gray</td><td>All notifications</td></tr>
+    <tr><td>CLN</td><td>CLN</td><td>Blue</td><td>Only CLN-* notifications</td></tr>
+    <tr><td>LAB</td><td>LAB</td><td>Green</td><td>Only LAB-* notifications</td></tr>
+    <tr><td>PHM</td><td>PHM</td><td>Purple</td><td>Only PHM-* notifications</td></tr>
+  </table>
+
+  <pre>// Notifications polled with active role as source filter
+const res = await fetch(`/api/notifications?source=${activeRole}`)
+
+// Backend filters: source_ref_id LIKE 'CLN%'
+if source:
+    query = query.like("source_ref_id", f"{source}%")</pre>
+
+  <h2>Cross-Location Conflict Notifications</h2>
+  <p>When a reconciliation detects a conflict, the system notifies <strong>all locations in the same cluster</strong> — not just the location being queried. This ensures, for example, that both CLN-001 and PHM-001 (who are the same patient) both see the conflict notification in their respective location views.</p>
+
+  <pre># In api.py _fast_reconcile_text():
+# 1. Get all source_ref_ids in the same cluster
+cluster_id = record["cluster_id"]
+siblings = sb.table("source_records")
+             .select("source_ref_id")
+             .eq("cluster_id", cluster_id).execute().data
+
+# 2. Create a notification for each sibling
+for sibling in siblings:
+    sb.table("notifications").insert({
+        "source_ref_id": sibling["source_ref_id"],   # CLN-001, LAB-001, PHM-001 all get one
+        "message": conflict_summary,
+        "type": "conflict",
+        "read": False,
+    }).execute()</pre>
+
+  <h2>Destructive Action Confirmation</h2>
+  <p>Messages containing destructive keywords are intercepted before sending to the API. A red confirmation modal appears asking the user to confirm.</p>
+
+  <pre>const DESTRUCTIVE_KEYWORDS = [
+  "delete", "remove record", "drop", "wipe", "erase",
+  "clear all", "remove patient", "purge"
+]
+
+function isDestructive(msg: string): boolean {
+  return DESTRUCTIVE_KEYWORDS.some(kw => msg.toLowerCase().includes(kw))
+}
+
+// On send:
+if (isDestructive(text) && !confirmed) {
+  setConfirmPending(text)   // shows modal
+  return
+}</pre>
+
+  <h2>Action Cards</h2>
+  <p>Each backend response action type renders with a distinct color:</p>
+  <table>
+    <tr><th>Action</th><th>Color</th><th>Example</th></tr>
+    <tr><td>registered</td><td>Green</td><td>Patient CLN-003 registered</td></tr>
+    <tr><td>updated</td><td>Blue</td><td>CLN-001 phone updated</td></tr>
+    <tr><td>issued</td><td>Emerald</td><td>Metformin prescribed for CLN-001</td></tr>
+    <tr><td>blocked</td><td>Red</td><td>Ibuprofen BLOCKED — dengue contraindication</td></tr>
+    <tr><td>reconciled</td><td>Purple</td><td>3 conflicts found, 2 resolved, 1 escalated</td></tr>
+    <tr><td>db_updated</td><td>Cyan</td><td>Medication added to CLN-001</td></tr>
+    <tr><td>db_deleted</td><td>Orange</td><td>Notification deleted</td></tr>
+    <tr><td>query_result</td><td>Indigo</td><td>Showing 5 patients…</td></tr>
+  </table>
+
+  <h2>Quick-Start Starters</h2>
+  <pre>const STARTERS = [
+  "Show all patients",
+  "List unresolved escalations",
+  "Compare CLN-001 and LAB-001",
+  "Search patients with warfarin",
+  "Add clinic patient: Name, DOB...",
+  "Add pharmacy patient: Name, DOB...",
+  "Prescribe metformin for CLN-001",
+  "What are the dengue NSAID guidelines?",
+]</pre>
+
+  <div class="page-num">Section 9 — Frontend</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §10 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 10</div>
+    <h1>Setup & Installation</h1>
+  </div>
+
+  <h2>Prerequisites</h2>
+  <ul>
+    <li>Python 3.11+ with <code>uv</code> installed</li>
+    <li>Node.js 18+ with npm</li>
+    <li>Supabase project with pgvector enabled</li>
+    <li>Gemini API key (Google AI Studio)</li>
+    <li>Groq API key (console.groq.com)</li>
+  </ul>
+
+  <h2>Environment Variables</h2>
+  <p>Create <code>concord/backend/.env</code>:</p>
+  <pre>SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_KEY=your-service-role-key
+GEMINI_API_KEY=your-gemini-api-key
+GROQ_API_KEY=your-groq-api-key</pre>
+
+  <h2>Supabase Setup</h2>
+  <div class="step-list">
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Enable pgvector</h4>
+        <pre>-- Run in Supabase SQL Editor
+CREATE EXTENSION IF NOT EXISTS vector;</pre>
+      </div>
+    </div>
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Run database migrations</h4>
+        <p>Run all SQL files in <code>concord/db/</code> in order:</p>
+        <pre>01_source_records.sql
+02_patient_clusters.sql
+03_conflicts.sql
+04_escalations.sql
+05_notifications.sql    ← creates notifications + prescriptions
+06_medical_guidelines.sql   ← vector table for RAG</pre>
+      </div>
+    </div>
+    <div class="step-item">
+      <div class="step-content">
+        <h4>Create match_guidelines RPC</h4>
+        <p>Run the <code>CREATE FUNCTION match_guidelines</code> SQL shown in Section 8 in the Supabase SQL Editor.</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>Backend Setup</h2>
+  <pre>cd concord/backend
+uv sync                        # install all Python dependencies
+
+# Seed the knowledge base (32 guidelines → Supabase)
+uv run python knowledge_base.py
+
+# Start the API server
+uv run uvicorn api:app --reload --port 8080</pre>
+
+  <div class="callout success">
+    <strong>knowledge_base.py output (expected)</strong>
+    Seeding 32 guidelines into medical_guidelines...<br>
+    ✓ DI-001 Warfarin + Aspirin Interaction<br>
+    ✓ DI-002 Penicillin Allergy...<br>
+    ... (32 lines)<br>
+    Done. 32 guidelines embedded.
+  </div>
+
+  <h2>Frontend Setup</h2>
+  <pre>cd concord/frontend
+npm install
+npm run dev     # starts on http://localhost:3000</pre>
+
+  <h2>File Structure</h2>
+  <pre>concord/
+├── backend/
+│   ├── api.py                  ← FastAPI routes (main entry point)
+│   ├── router_agent.py         ← Intent classification
+│   ├── registration_agent.py   ← Patient registration & update
+│   ├── agent.py                ← Reconciliation pipeline
+│   ├── prescription_agent.py   ← Drug safety agentic loop
+│   ├── database_agent.py       ← CRUD agentic loop (db_update intent)
+│   ├── query_agent.py          ← Non-agentic DB queries
+│   ├── llm_interface.py        ← Gemini/Groq wrappers + schemas
+│   ├── rag_retriever.py        ← RAG retrieval functions
+│   ├── knowledge_base.py       ← Seeds guidelines into Supabase
+│   ├── embed_records.py        ← Patient record embedding + re-embed
+│   └── .env
+└── frontend/
+    ├── app/
+    │   └── page.tsx            ← Main chat UI
+    └── package.json</pre>
+
+  <div class="page-num">Section 10 — Setup & Installation</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §11 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 11</div>
+    <h1>Testing Each Component</h1>
+  </div>
+
+  <h2>1. Test RAG Retriever</h2>
+  <p>Smoke test all retrieval functions directly:</p>
+  <pre>cd concord/backend
+uv run python rag_retriever.py</pre>
+  <p>Expected output — for each of 6 test queries, you should see matched guidelines:</p>
+  <div class="test-block">
+    <div class="test-header"><span>Expected output</span><span>rag_retriever.py</span></div>
+    <pre>Query: warfarin and aspirin prescribed together (category=drug_interaction)
+RELEVANT CLINICAL GUIDELINES:
+[1] [CRITICAL] Warfarin + Aspirin Interaction (relevance: 89.2%)
+    Co-administration causes significantly increased bleeding risk...
+------------------------------------------------------------
+Query: dengue fever patient needs pain relief (category=all)
+[1] [CRITICAL] Dengue Fever — NSAIDs Contraindicated (relevance: 91.4%)
+    Ibuprofen, aspirin, and other NSAIDs are absolutely contraindicated...</pre>
+  </div>
+
+  <p>If you see "No specific guidelines retrieved", the knowledge base is not seeded — run <code>uv run python knowledge_base.py</code> first.</p>
+
+  <h2>2. Test LLM Interface (Adjudication)</h2>
+  <pre>uv run python llm_interface.py</pre>
+  <p>Sends 3 sample conflicts (warfarin+aspirin, penicillin allergy, blood type). Expected: 2 LLM calls complete, JSON output with resolutions and escalation review.</p>
+
+  <h2>3. Test Prescription Agent</h2>
+  <pre>uv run python -c "
+from prescription_agent import process_prescription
+r = process_prescription('CLN-001', 'ibuprofen', '400mg', 'fever')
+print(r)
+"</pre>
+  <p>Watch the terminal for tool call logs:</p>
+  <div class="test-block">
+    <div class="test-header"><span>Expected logs</span><span>prescription_agent</span></div>
+    <pre>[prescription-agent] Turn 1: get_patient_record(['source_ref_id'])
+[prescription-agent] Turn 2: check_interaction(['new_drug', 'existing_medications', 'allergies'])
+[prescription-agent] Turn 3: issue_prescription(...)  ← or block_prescription(...)</pre>
+  </div>
+
+  <h2>4. Test via API (curl)</h2>
+  <table>
+    <tr><th>Test</th><th>Command</th></tr>
+    <tr><td>Health check</td><td><code>curl http://localhost:8080/health</code></td></tr>
+    <tr><td>List notifications (CLN)</td><td><code>curl "http://localhost:8080/notifications?source=CLN"</code></td></tr>
+    <tr><td>Chat: show patients</td><td><code>curl -X POST http://localhost:8080/chat -H "Content-Type: application/json" -d "{\"message\":\"Show all patients\"}"</code></td></tr>
+    <tr><td>Chat: prescribe</td><td><code>curl -X POST http://localhost:8080/chat -H "Content-Type: application/json" -d "{\"message\":\"Prescribe ibuprofen for CLN-001\"}"</code></td></tr>
+    <tr><td>Chat: reconcile</td><td><code>curl -X POST http://localhost:8080/chat -H "Content-Type: application/json" -d "{\"message\":\"Compare CLN-001 and LAB-001\"}"</code></td></tr>
+  </table>
+
+  <h2>5. Test Frontend</h2>
+  <p>Open <code>http://localhost:3000</code> and test these scenarios:</p>
+  <table>
+    <tr><th>Action</th><th>Expected</th></tr>
+    <tr><td>Click role selector → CLN</td><td>Bell only shows CLN-* notifications</td></tr>
+    <tr><td>Click role selector → LAB</td><td>Bell switches to LAB-* notifications only</td></tr>
+    <tr><td>Type "delete CLN-001"</td><td>Red confirmation modal appears</td></tr>
+    <tr><td>Cancel in confirmation modal</td><td>Message NOT sent to API</td></tr>
+    <tr><td>Confirm in modal</td><td>delete_patient runs</td></tr>
+    <tr><td>Click ✕ on a notification</td><td>Notification removed, bell count decreases</td></tr>
+    <tr><td>Click "Clear all"</td><td>All notifications for active role deleted</td></tr>
+  </table>
+
+  <div class="page-num">Section 11 — Testing Components</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §12 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 12</div>
+    <h1>End-to-End Test Scenarios</h1>
+  </div>
+
+  <h2>Scenario A — Drug Interaction Detection (Dengue + NSAIDs)</h2>
+  <div class="callout warn">
+    <strong>Setup</strong>
+    Patient CLN-001 must have "dengue" or "dengue fever" in their medical notes/medications.
+  </div>
+  <div class="step-list">
+    <div class="step-item"><div class="step-content"><h4>Chat</h4><p><code>Prescribe ibuprofen for CLN-001</code></p></div></div>
+    <div class="step-item"><div class="step-content"><h4>Prescription Agent fetches record</h4><p>get_patient_record → sees dengue in medications</p></div></div>
+    <div class="step-item"><div class="step-content"><h4>RAG retrieves LK-002</h4><p>Guideline: "Dengue Fever — NSAIDs Contraindicated" (CRITICAL, score ~1.8)</p></div></div>
+    <div class="step-item"><div class="step-content"><h4>block_prescription called</h4><p>Response shows red BLOCKED card: "Ibuprofen contraindicated — dengue fever"</p></div></div>
+  </div>
+
+  <h2>Scenario B — Cross-Location Conflict Notification</h2>
+  <div class="step-list">
+    <div class="step-item"><div class="step-content"><h4>Register same patient at 2 locations</h4><p>CLN-001: blood type A+<br>LAB-001: blood type B+<br>(high similarity → same cluster)</p></div></div>
+    <div class="step-item"><div class="step-content"><h4>Chat</h4><p><code>Compare CLN-001 and LAB-001</code></p></div></div>
+    <div class="step-item"><div class="step-content"><h4>Conflict detected</h4><p>data_integrity conflict on blood_type. RAG fetches DT-001 (Blood Type Conflict Protocol).</p></div></div>
+    <div class="step-item"><div class="step-content"><h4>Both locations notified</h4><p>Switch to CLN role → bell shows notification. Switch to LAB role → bell also shows the same conflict.</p></div></div>
+  </div>
+
+  <h2>Scenario C — Full DB Update via Chat</h2>
+  <table>
+    <tr><th>Chat message</th><th>Intent</th><th>Expected result</th></tr>
+    <tr><td>"Add medication paracetamol for CLN-001"</td><td>db_update</td><td>Cyan card: paracetamol added to medications array</td></tr>
+    <tr><td>"Remove medication paracetamol from CLN-001"</td><td>db_update</td><td>Cyan card: paracetamol removed</td></tr>
+    <tr><td>"Update CLN-001 phone to 0771234567"</td><td>update</td><td>Blue card: phone updated, record re-embedded</td></tr>
+    <tr><td>"Resolve escalation for CLN-001"</td><td>db_update</td><td>Escalation status → resolved</td></tr>
+    <tr><td>"Add allergy sulfa for PHM-001"</td><td>db_update</td><td>Sulfa added to allergies array</td></tr>
+  </table>
+
+  <h2>Scenario D — Query System</h2>
+  <table>
+    <tr><th>Chat message</th><th>query_type</th><th>Expected</th></tr>
+    <tr><td>"Show all patients"</td><td>all_patients</td><td>Formatted table of all source_records</td></tr>
+    <tr><td>"List unresolved escalations"</td><td>escalations</td><td>All escalations with status=open</td></tr>
+    <tr><td>"What medications does CLN-001 have?"</td><td>medications</td><td>Medications array for CLN-001</td></tr>
+    <tr><td>"Search patients with warfarin"</td><td>search</td><td>All patients whose medications array contains warfarin</td></tr>
+    <tr><td>"Show prescriptions for CLN-001"</td><td>prescriptions</td><td>All prescription records for CLN-001</td></tr>
+  </table>
+
+  <h2>Scenario E — Allergy Safety</h2>
+  <div class="step-list">
+    <div class="step-item"><div class="step-content"><h4>Add penicillin allergy</h4><p><code>Add allergy penicillin for CLN-001</code></p></div></div>
+    <div class="step-item"><div class="step-content"><h4>Try to prescribe amoxicillin</h4><p><code>Prescribe amoxicillin for CLN-001</code></p></div></div>
+    <div class="step-item"><div class="step-content"><h4>Expected</h4><p>Direct allergy_hit detected (amoxicillin ∈ penicillin family). RAG fetches AL-001 (Penicillin Allergy Protocol). Prescription BLOCKED.</p></div></div>
+  </div>
+
+  <div class="page-num">Section 12 — End-to-End Test Scenarios</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ §13 ═══ -->
+<div class="page">
+  <div class="section-header">
+    <div class="section-num">Section 13</div>
+    <h1>API Reference</h1>
+  </div>
+
+  <h2>Base URL: <code>http://localhost:8080</code></h2>
+
+  <h2>Core Endpoints</h2>
+
+  <h3>POST /chat</h3>
+  <p>Main chat endpoint. Routes to the correct agent based on intent classification.</p>
+  <pre>Request:
+{
+  "message": "Prescribe metformin for CLN-001",
+  "source_ref_id": "CLN-001"   // optional hint
+}
+
+Response (issued):
+{
+  "action": "issued",
+  "source_ref_id": "CLN-001",
+  "patient_name": "Perera Sunil",
+  "drug": "metformin",
+  "reason": "Metformin prescribed successfully.",
+  "message": "Metformin 500mg prescribed for Perera Sunil."
+}
+
+Response (blocked):
+{
+  "action": "blocked",
+  "drug": "ibuprofen",
+  "reason": "Contraindicated in dengue fever — risk of haemorrhage.",
+  "interactions_found": ["LK-002: Dengue Fever — NSAIDs Contraindicated"]
+}</pre>
+
+  <h3>GET /notifications</h3>
+  <pre>Parameters:
+  source: str   // "CLN" | "LAB" | "PHM" | "" (all)
+  limit:  int   // default 20
+
+Response:
+[
+  {
+    "id": "uuid",
+    "source_ref_id": "CLN-001",
+    "message": "Conflict detected: blood_type mismatch with LAB-001",
+    "type": "conflict",
+    "read": false,
+    "created_at": "2026-06-13T..."
+  }
+]</pre>
+
+  <h3>DELETE /notifications/{id}</h3>
+  <pre>Deletes a single notification by ID.
+Response: { "deleted": true }</pre>
+
+  <h3>DELETE /notifications</h3>
+  <pre>Parameters:
+  source: str   // delete all notifications for this prefix
+
+Response: { "deleted": 5 }</pre>
+
+  <h3>GET /health</h3>
+  <pre>Response: { "status": "ok", "version": "1.0" }</pre>
+
+  <h2>Chat Action Types in Response</h2>
+  <table>
+    <tr><th>action</th><th>Produced by</th><th>Key fields</th></tr>
+    <tr><td>registered</td><td>Registration Agent</td><td>source_ref_id, name, cluster_id</td></tr>
+    <tr><td>updated</td><td>Registration Agent</td><td>source_ref_id, fields_updated</td></tr>
+    <tr><td>issued</td><td>Prescription Agent</td><td>source_ref_id, drug, dosage</td></tr>
+    <tr><td>blocked</td><td>Prescription Agent</td><td>drug, reason, interactions_found</td></tr>
+    <tr><td>reconciled</td><td>Reconciliation Agent</td><td>conflicts, resolutions, escalations</td></tr>
+    <tr><td>db_updated</td><td>Database Agent</td><td>message, rows_affected, details</td></tr>
+    <tr><td>db_deleted</td><td>Database Agent</td><td>message, rows_affected</td></tr>
+    <tr><td>db_error</td><td>Database Agent</td><td>message</td></tr>
+    <tr><td>query_result</td><td>Query Agent + LLM</td><td>data, total, formatted_response</td></tr>
+    <tr><td>chat</td><td>LLM (general)</td><td>message, guidelines_used</td></tr>
+  </table>
+
+  <h2>Common Errors</h2>
+  <table>
+    <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
+    <tr><td>"No record found for CLN-001"</td><td>Patient not registered</td><td>Register patient first</td></tr>
+    <tr><td>"match_guidelines function not found"</td><td>RPC not created in Supabase</td><td>Run match_guidelines SQL in Supabase editor</td></tr>
+    <tr><td>"No guidelines retrieved"</td><td>knowledge_base.py not run</td><td><code>uv run python knowledge_base.py</code></td></tr>
+    <tr><td>"GROQ rate limit"</td><td>Too many requests</td><td>Auto-fallback to Llama 3.1-8B</td></tr>
+    <tr><td>"Gemini failed"</td><td>Quota or key issue</td><td>Auto-fallback to Groq</td></tr>
+  </table>
+
+  <div class="callout info">
+    <strong>Quick Start Commands Summary</strong>
+    <code>uv run python knowledge_base.py</code> — seed RAG knowledge base (run once)<br>
+    <code>uv run uvicorn api:app --reload --port 8080</code> — start backend<br>
+    <code>npm run dev</code> — start frontend (from concord/frontend/)<br>
+    <code>uv run python rag_retriever.py</code> — smoke test RAG<br>
+    <code>uv run python llm_interface.py</code> — smoke test LLM adjudication
+  </div>
+
+  <div style="margin-top:40px; padding: 20px; background: linear-gradient(135deg,#0f3460,#1a1a2e); border-radius:8px; color:white; text-align:center;">
+    <div style="font-size:28px; font-weight:900; letter-spacing:4px; color:#e94560;">CONCORD</div>
+    <div style="margin-top:8px; color:#a8b2d8; font-size:12px;">Clinical Record Reconciliation System — Sri Lanka</div>
+    <div style="margin-top:16px; color:#8892b0; font-size:11px;">
+      Dipna Wijesi · sahanwijesi@gmail.com · June 2026<br>
+      Backend: FastAPI + Groq + Gemini · Database: Supabase + pgvector · Frontend: Next.js
+    </div>
+  </div>
+
+  <div class="page-num">Section 13 — API Reference</div>
+</div>
+
+</body>
+</html>
