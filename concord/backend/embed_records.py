@@ -35,6 +35,30 @@ def record_to_text(record: dict) -> str:
     return " | ".join(p.strip() for p in parts if p.strip())
 
 
+def re_embed_record(source_ref_id: str) -> bool:
+    """
+    Re-generate the embedding for a single patient record after a demographic update.
+    Returns True if successful, False if record not found or model unavailable.
+    """
+    try:
+        model = SentenceTransformer(MODEL_NAME)
+        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+        resp = supabase.table("source_records").select("id, name, dob, nic, phone, address").eq("source_ref_id", source_ref_id).execute()
+        if not resp.data:
+            return False
+
+        record = resp.data[0]
+        text = record_to_text(record)
+        vector = model.encode([text], normalize_embeddings=True)[0]
+        supabase.table("source_records").update({"embedding": vector.tolist()}).eq("id", record["id"]).execute()
+        print(f"[embed] Re-embedded {source_ref_id} ({record.get('name', '')})")
+        return True
+    except Exception as e:
+        print(f"[embed] Failed to re-embed {source_ref_id}: {e}")
+        return False
+
+
 def main():
     print(f"Loading model: {MODEL_NAME}")
     model = SentenceTransformer(MODEL_NAME)

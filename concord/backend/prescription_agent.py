@@ -168,33 +168,47 @@ class PrescriptionToolExecutor:
         }, indent=2)
 
     def _check_interaction(self, new_drug: str, existing_medications: list, allergies: list) -> str:
-        from rag_retriever import retrieve_guidelines
-        query = f"{new_drug} interaction with {', '.join(existing_medications)}" if existing_medications else f"{new_drug} drug safety"
-        guidelines = retrieve_guidelines(query, top_k=5, threshold=0.2)
+        from rag_retriever import retrieve_for_prescription, format_guidelines_context
+        guidelines = retrieve_for_prescription(new_drug, existing_medications, allergies, top_k=6)
 
-        # Check allergy match
-        allergy_hit = [a for a in allergies if a.lower() in new_drug.lower() or new_drug.lower() in a.lower()]
+        # Allergy name match (direct name check)
+        drug_lower = new_drug.lower()
+        allergy_hit = [a for a in allergies if a.lower() in drug_lower or drug_lower in a.lower()]
 
-        # Find interaction-relevant guidelines
+        # Find critical/high-severity guidelines that mention the new drug AND an existing med or allergy
         interaction_guidelines = []
         for g in guidelines:
-            text = (g.get("title", "") + " " + g.get("content", "")).lower()
-            if new_drug.lower() in text:
-                for med in existing_medications:
-                    if med.lower() in text:
-                        interaction_guidelines.append({
-                            "guideline_id": g["guideline_id"],
-                            "title": g["title"],
-                            "severity": g.get("severity", "unknown"),
-                            "summary": g.get("content", "")[:200],
-                        })
+            text = (g.get("title", "") + " " + g.get("content", "") + " " + (g.get("tags") or "")).lower()
+            # Check if this guideline is relevant to new drug
+            drug_words = [w for w in drug_lower.split() if len(w) > 3]
+            drug_mentioned = any(w in text for w in drug_words) or drug_lower in text
+            if not drug_mentioned:
+                continue
+            # Check if it also mentions an existing med or allergy
+            med_mentioned = any(
+                any(w in text for w in med.lower().split() if len(w) > 3)
+                for med in existing_medications
+            )
+            allergy_mentioned = any(a.lower() in text for a in allergies)
+            if med_mentioned or allergy_mentioned or g.get("severity") == "critical":
+                interaction_guidelines.append({
+                    "guideline_id": g["guideline_id"],
+                    "title": g["title"],
+                    "severity": g.get("severity", "unknown"),
+                    "summary": g.get("content", "")[:300],
+                })
+
+        critical_found = any(g["severity"] == "critical" for g in interaction_guidelines)
+        safe = len(interaction_guidelines) == 0 and len(allergy_hit) == 0
 
         return json.dumps({
             "new_drug": new_drug,
             "existing_medications": existing_medications,
             "allergy_conflicts": allergy_hit,
             "interaction_guidelines": interaction_guidelines,
-            "safe_to_prescribe": len(interaction_guidelines) == 0 and len(allergy_hit) == 0,
+            "safe_to_prescribe": safe,
+            "has_critical_interaction": critical_found,
+            "rag_context": format_guidelines_context(guidelines),
         }, indent=2)
 
     def _issue_prescription(self, source_ref_id: str, drug: str, dosage: str = "", notes: str = "") -> str:
@@ -209,7 +223,9 @@ class PrescriptionToolExecutor:
         patient_name = resp.data[0].get("name", "")
         drug_entry = f"{drug} {dosage}".strip()
 
-        if drug_entry not in current_meds:
+        # Dedup check: skip if drug name already present (case-insensitive, partial match)
+        already_present = any(drug.lower() in str(m).lower() for m in current_meds)
+        if not already_present:
             current_meds.append(drug_entry)
             sb.table("source_records").update({"medications": current_meds}).eq("source_ref_id", source_ref_id).execute()
 

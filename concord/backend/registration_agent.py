@@ -174,6 +174,13 @@ class RegistrationToolExecutor:
 
         sb.table("source_records").insert(record).execute()
 
+        # Generate embedding for the new record
+        try:
+            from embed_records import re_embed_record
+            re_embed_record(new_id)
+        except Exception:
+            pass
+
         # Set result directly — don't rely on LLM to pass the ID back
         self._result = RegistrationResult(
             success=True,
@@ -219,6 +226,14 @@ class RegistrationToolExecutor:
             return json.dumps({"error": "No fields to update."})
 
         sb.table("source_records").update(updates).eq("source_ref_id", source_ref_id).execute()
+
+        # Re-embed if identity fields changed
+        if updates.keys() & {"name", "dob", "nic", "phone", "address"}:
+            try:
+                from embed_records import re_embed_record
+                re_embed_record(source_ref_id)
+            except Exception:
+                pass
 
         self._result = RegistrationResult(
             success=True,

@@ -86,13 +86,14 @@ _ADJUDICATION_SCHEMA = AdjudicationResult.model_json_schema()
 _ESCALATION_SCHEMA = EscalationReview.model_json_schema()
 
 
-def _build_adjudication_prompt(conflicts: list[dict]) -> str:
+def _build_adjudication_prompt(conflicts: list[dict], guidelines_context: str = "") -> str:
     conflicts_json = json.dumps(conflicts, indent=2)
     schema_json = json.dumps(_ADJUDICATION_SCHEMA, indent=2)
+    rag_block = f"\nRELEVANT CLINICAL GUIDELINES (use these to inform resolutions):\n{guidelines_context}\n" if guidelines_context else ""
     return f"""You are a clinical informatics expert reconciling contradictory patient records from multiple Sri Lankan healthcare providers.
 
 For each conflict below, decide the safest resolution. Always prioritise patient safety over data consistency — when in doubt, escalate.
-
+{rag_block}
 CONFLICTS:
 {conflicts_json}
 
@@ -160,16 +161,33 @@ def _llm_call(prompt: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def adjudicate(conflicts: list[dict]) -> AdjudicationResult:
+def adjudicate(conflicts: list[dict], guidelines_context: str = "") -> AdjudicationResult:
     """
     LLM Call 1.
-    Sends all conflicts to the LLM in a single request and returns
-    structured resolutions. Raises ValueError on unparseable output.
+    Sends all conflicts + RAG guidelines to the LLM in a single request.
+    guidelines_context: pre-formatted RAG text to inject into the prompt.
     """
     if not conflicts:
         return AdjudicationResult(resolutions=[], summary="No conflicts to adjudicate.")
 
-    prompt = _build_adjudication_prompt(conflicts)
+    # If no guidelines provided, auto-fetch from RAG for each conflict
+    if not guidelines_context:
+        try:
+            from rag_retriever import retrieve_for_conflict, format_guidelines_context
+            all_guidelines = []
+            seen_ids: set[str] = set()
+            for c in conflicts:
+                query = f"{c.get('description', '')} {c.get('field', '')} {c.get('value_a', '')} {c.get('value_b', '')}"
+                results = retrieve_for_conflict(query, conflict_type=c.get("conflict_type", ""), top_k=3)
+                for g in results:
+                    if g.get("guideline_id") not in seen_ids:
+                        seen_ids.add(g["guideline_id"])
+                        all_guidelines.append(g)
+            guidelines_context = format_guidelines_context(all_guidelines) if all_guidelines else ""
+        except Exception:
+            guidelines_context = ""
+
+    prompt = _build_adjudication_prompt(conflicts, guidelines_context)
     raw = _llm_call(prompt)
 
     try:

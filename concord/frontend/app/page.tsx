@@ -21,15 +21,18 @@ type ChatMessage = {
   content: string;
   guidelines?: string[];
   action?: string;
-  action_data?: { source_ref_id?: string; patient_name?: string; existing_id?: string };
+  action_data?: { source_ref_id?: string; patient_name?: string; existing_id?: string; table?: string; fields?: string };
 };
 
 const STARTERS = [
   "Tell me about patient CLN-001",
   "What conflicts does CLN-001 have?",
-  "What medications does PHM-001 have?",
-  "What is the warfarin + aspirin risk?",
-  "Add new patient: Kasun Silva, DOB 1990-05-14, medications: metformin",
+  "Show all patients",
+  "List unresolved escalations",
+  "Add clinic patient: Kasun Silva, DOB 1990-05-14, medications: metformin",
+  "Add pharmacy patient: Nimal Perera, DOB 1985-03-22",
+  "Compare CLN-001 and CLN-002",
+  "Search patients with warfarin",
 ];
 
 function OrbitSpinner() {
@@ -98,12 +101,21 @@ const SOURCE_ROLES: { id: SourceRole; label: string; color: string }[] = [
   { id: "PHM", label: "Pharmacy", color: "text-emerald-400 border-emerald-500/40 bg-emerald-500/10" },
 ];
 
+const DESTRUCTIVE_KEYWORDS = ["delete", "remove patient", "remove record", "drop", "wipe", "erase"];
+
+function isDestructive(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return DESTRUCTIVE_KEYWORDS.some((k) => lower.includes(k));
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const [confirmPending, setConfirmPending] = useState<string | null>(null);
 
   const [activeRole, setActiveRole] = useState<SourceRole>("CLN");
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -135,13 +147,30 @@ export default function Home() {
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
   }
 
+  async function clearAllNotifications() {
+    await fetch(`${API}/notifications?source=${activeRole}`, { method: "DELETE" });
+    setNotifications([]);
+  }
+
+  async function deleteNotification(id: string) {
+    await fetch(`${API}/notifications/${id}`, { method: "DELETE" });
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  }
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function send(text?: string) {
+  async function send(text?: string, confirmed = false) {
     const msg = (text ?? input).trim();
     if (!msg || loading) return;
+
+    // Intercept destructive operations — ask for confirmation first
+    if (!confirmed && isDestructive(msg)) {
+      setConfirmPending(msg);
+      return;
+    }
+
     const userMsg: ChatMessage = { role: "user", content: msg };
     const updated = [...messages, userMsg];
     setMessages(updated);
@@ -245,7 +274,11 @@ export default function Home() {
                       {SOURCE_ROLES.find(r => r.id === activeRole)?.label}
                     </span>
                   </div>
-                  <button onClick={markAllRead} className="text-xs text-white/30 hover:text-white/60 transition-colors">Mark all read</button>
+                  <div className="flex items-center gap-2">
+                    <button onClick={markAllRead} className="text-xs text-white/30 hover:text-white/60 transition-colors">Read</button>
+                    <span className="text-white/15">·</span>
+                    <button onClick={clearAllNotifications} className="text-xs text-red-400/50 hover:text-red-400 transition-colors">Clear all</button>
+                  </div>
                 </div>
                 {notifications.length === 0 ? (
                   <div className="px-4 py-8 text-center text-sm text-white/30">No notifications for {SOURCE_ROLES.find(r => r.id === activeRole)?.label}</div>
@@ -257,12 +290,15 @@ export default function Home() {
                           <span className={`mt-0.5 text-[10px] px-1.5 py-0.5 rounded border font-semibold uppercase shrink-0 ${URGENCY_COLOR[n.urgency] ?? URGENCY_COLOR.low}`}>
                             {n.urgency}
                           </span>
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <p className="text-xs font-semibold text-white/80 truncate">{n.title}</p>
                             <p className="text-xs text-white/40 mt-0.5 line-clamp-2">{n.message}</p>
                             <p className="text-[10px] text-white/20 mt-1">{n.patient_name} · {new Date(n.created_at).toLocaleTimeString()}</p>
                           </div>
-                          {!n.is_read && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0 mt-1.5" />}
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            {!n.is_read && <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />}
+                            <button onClick={() => deleteNotification(n.id)} className="text-white/20 hover:text-red-400 transition-colors text-xs leading-none">✕</button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -337,6 +373,18 @@ export default function Home() {
                         <p className="text-xs text-blue-400/70 uppercase tracking-widest mb-0.5">Updated</p>
                         <p className="text-sm font-semibold text-blue-300">{m.action_data.patient_name}</p>
                         <p className="text-xs font-mono text-blue-400/60 mt-0.5">ID: {m.action_data.source_ref_id}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* DB update card */}
+                  {m.action === "db_updated" && m.action_data && (
+                    <div className="mt-2 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-cyan-500/20 flex items-center justify-center text-cyan-400 text-lg shrink-0">⟳</div>
+                      <div>
+                        <p className="text-xs text-cyan-400/70 uppercase tracking-widest mb-0.5">DB Updated</p>
+                        <p className="text-sm font-semibold text-cyan-300">{m.action_data.source_ref_id}</p>
+                        <p className="text-xs text-cyan-400/60 mt-0.5">{m.action_data.table} · {m.action_data.fields}</p>
                       </div>
                     </div>
                   )}
@@ -416,6 +464,35 @@ export default function Home() {
           </p>
         </div>
       </div>
+
+      {/* Destructive operation confirmation modal */}
+      {confirmPending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-[#1e1f21] border border-red-500/30 rounded-2xl px-6 py-5 max-w-sm w-full mx-4 shadow-2xl">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-9 h-9 rounded-full bg-red-500/20 flex items-center justify-center text-red-400 text-lg shrink-0">⚠</div>
+              <p className="text-sm font-semibold text-white">Confirm Destructive Action</p>
+            </div>
+            <p className="text-xs text-white/50 mb-1">You are about to run:</p>
+            <p className="text-xs font-mono text-red-300/80 bg-red-500/10 rounded-lg px-3 py-2 mb-4 break-all">{confirmPending}</p>
+            <p className="text-xs text-white/40 mb-4">This may permanently delete data. Are you sure?</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { const msg = confirmPending; setConfirmPending(null); setInput(""); send(msg, true); }}
+                className="flex-1 py-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-sm font-semibold hover:bg-red-500/30 transition-all"
+              >
+                Yes, proceed
+              </button>
+              <button
+                onClick={() => setConfirmPending(null)}
+                className="flex-1 py-2 rounded-xl bg-white/5 border border-white/10 text-white/50 text-sm font-semibold hover:bg-white/10 transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

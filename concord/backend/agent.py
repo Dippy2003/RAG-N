@@ -25,7 +25,7 @@ from supabase import create_client
 
 from conflict_detector import detect_conflicts
 from identity_matcher import match_patient
-from rag_retriever import format_guidelines_context, retrieve_guidelines
+from rag_retriever import format_guidelines_context, retrieve_guidelines, retrieve_for_conflict
 
 load_dotenv()
 
@@ -333,7 +333,11 @@ class ToolExecutor:
         }, indent=2)
 
     def _retrieve_guidelines(self, query: str, conflict_index: int) -> str:
-        guidelines = retrieve_guidelines(query, top_k=3)
+        # Detect conflict type from context to apply category filter
+        conflict_type = ""
+        if conflict_index < len(self._conflicts):
+            conflict_type = self._conflicts[conflict_index].get("conflict_type", "")
+        guidelines = retrieve_for_conflict(query, conflict_type=conflict_type, top_k=4)
         self._guidelines_cache[conflict_index] = guidelines
         formatted = format_guidelines_context(guidelines)
         return formatted

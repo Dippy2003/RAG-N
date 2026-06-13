@@ -28,10 +28,12 @@ from adjudicator import ReconciliationResult, reconcile
 from agent import AgentReport, run_agent
 from escalation_reviewer import EscalationReport, run_escalation_review
 from identity_agent import IdentityValidationResult, validate_identity
-from rag_retriever import format_guidelines_context, retrieve_guidelines
+from rag_retriever import format_guidelines_context, retrieve_guidelines, retrieve_for_chat
 from router_agent import route
 from registration_agent import register_patient_from_details, RegistrationResult
 from prescription_agent import process_prescription, PrescriptionResult
+from database_agent import process_db_update, DbUpdateResult
+from query_agent import run_query, QueryResult
 from notification_agent import (
     create_notification, get_notifications, mark_read,
     notify_prescription_blocked, notify_escalation,
@@ -476,6 +478,7 @@ def chat(req: ChatRequest):
             return ChatResponse(reply=reply, action="registered", action_data={"source_ref_id": reg.source_ref_id, "patient_name": reg.patient_name})
 
         if reg.action == "updated":
+            _recon_cache.pop(reg.source_ref_id, None)  # invalidate stale cache
             reply = f"Record updated successfully for **{reg.patient_name}** ({reg.source_ref_id})."
             return ChatResponse(reply=reply, action="updated", action_data={"source_ref_id": reg.source_ref_id, "patient_name": reg.patient_name})
 
@@ -505,6 +508,7 @@ def chat(req: ChatRequest):
             raise HTTPException(status_code=500, detail=f"Prescription failed: {e!s}")
 
         if rx.action == "issued":
+            _recon_cache.pop(rx.source_ref_id, None)  # medications changed — invalidate cache
             # Auto-notify (low urgency — successful prescription)
             create_notification(
                 source_ref_id=rx.source_ref_id, patient_name=rx.patient_name,
@@ -531,7 +535,84 @@ def chat(req: ChatRequest):
 
         raise HTTPException(status_code=500, detail=rx.reason)
 
-    guidelines = retrieve_guidelines(req.message, top_k=4, threshold=0.25)
+    if intent == "db_update":
+        try:
+            db: DbUpdateResult = process_db_update(params)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Database update failed: {e!s}")
+
+        if db.action in ("db_updated", "db_deleted"):
+            _recon_cache.pop(db.record_id, None)
+            fields_str = ", ".join(db.updated_fields) if db.updated_fields else "record"
+            verb = "deleted" if db.action == "db_deleted" else "updated"
+            reply = (
+                f"Database {verb} successfully.\n\n"
+                f"**Table:** {db.table}\n"
+                f"**Record:** {db.record_id}\n\n"
+                f"{db.message}"
+            )
+            return ChatResponse(
+                reply=reply,
+                action=db.action,
+                action_data={"source_ref_id": db.record_id, "table": db.table, "fields": fields_str},
+            )
+
+        raise HTTPException(status_code=500, detail=db.message)
+
+    if intent == "query":
+        try:
+            qr: QueryResult = run_query(params)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Query failed: {e!s}")
+
+        if not qr.success:
+            return ChatResponse(reply=qr.message)
+
+        # Format rows as a readable table for the LLM to present
+        rows_text = json.dumps(qr.rows[:30], indent=2, default=str)
+        query_context = (
+            f"QUERY RESULT — {qr.query_type.replace('_', ' ').upper()}\n"
+            f"{qr.message}\n\n"
+            f"Data:\n{rows_text}"
+        )
+
+        # Single LLM call to present the results nicely
+        client = Groq(api_key=GROQ_API_KEY)
+        try:
+            resp = client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=[
+                    {"role": "system", "content": (
+                        "You are Concord Assistant. Present the following database query results clearly and concisely. "
+                        "Use a markdown table if there are multiple rows. Highlight important values like blocked prescriptions or unresolved escalations."
+                    )},
+                    {"role": "system", "content": query_context},
+                    {"role": "user", "content": req.message},
+                ],
+                temperature=0.2,
+                max_tokens=1024,
+            )
+        except Exception as e:
+            if "rate_limit_exceeded" in str(e) or "429" in str(e):
+                resp = client.chat.completions.create(
+                    model=GROQ_FALLBACK_MODEL,
+                    messages=[
+                        {"role": "system", "content": "Present these query results clearly."},
+                        {"role": "system", "content": query_context},
+                        {"role": "user", "content": req.message},
+                    ],
+                    temperature=0.2, max_tokens=1024,
+                )
+            else:
+                raise HTTPException(status_code=500, detail=f"LLM error: {e!s}")
+
+        return ChatResponse(
+            reply=resp.choices[0].message.content or qr.message,
+            action="query_result",
+            action_data={"query_type": qr.query_type, "total": str(qr.total)},
+        )
+
+    guidelines = retrieve_for_chat(req.message, top_k=4)
     context_block = format_guidelines_context(guidelines)
     guideline_ids = [g["guideline_id"] for g in guidelines]
 
@@ -564,27 +645,34 @@ def chat(req: ChatRequest):
         messages.append({"role": m.role, "content": m.content})
     messages.append({"role": "user", "content": req.message})
 
-    _id_match = _re.search(r'\b(CLN|LAB|PHM)-\d+\b', req.message, _re.IGNORECASE)
+    # Extract ALL patient IDs mentioned in the message (supports multi-patient queries)
+    _id_matches = list(dict.fromkeys(
+        m.upper() for m in _re.findall(r'\b(CLN|LAB|PHM)-\d+\b', req.message, _re.IGNORECASE)
+    ))
     _conflict_keywords = {"conflict", "conflicts", "interaction", "drug", "safe", "safety",
-                          "escalat", "reconcil", "medic", "allerg", "risk", "danger"}
+                          "escalat", "reconcil", "medic", "allerg", "risk", "danger", "compare"}
     _msg_lower = req.message.lower()
     _is_conflict_query = any(k in _msg_lower for k in _conflict_keywords)
 
-    # Fast path: patient ID + conflict query → run pipeline reconciliation directly
-    # This skips the slow agentic tool-call loop entirely
-    if _id_match and _is_conflict_query and not patient_context:
-        sid = _id_match.group(0).upper()
-        try:
-            recon_text = _fast_reconcile_text(sid)
-            messages.append({
-                "role": "system",
-                "content": f"RECONCILIATION RESULT FOR {sid} (from database):\n{recon_text}",
-            })
-        except Exception:
-            # Reconciliation failed (e.g. no embedding for new patient) — fall back to raw record
+    if _id_matches and not patient_context:
+        from supabase import create_client as _sc
+        _sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+
+        for sid in _id_matches:
+            if _is_conflict_query:
+                # Fast path: inject reconciliation result
+                try:
+                    recon_text = _fast_reconcile_text(sid)
+                    messages.append({
+                        "role": "system",
+                        "content": f"RECONCILIATION RESULT FOR {sid}:\n{recon_text}",
+                    })
+                    continue
+                except Exception:
+                    pass  # fall through to raw record below
+
+            # Raw record inject (info query or reconcile failed)
             try:
-                from supabase import create_client as _sc
-                _sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
                 resp = (
                     _sb.table("source_records")
                     .select("source_ref_id, source, name, dob, nic, phone, address, medications, allergies, blood_type")
@@ -592,35 +680,15 @@ def chat(req: ChatRequest):
                     .execute()
                 )
                 if resp.data:
+                    note = ""
+                    if _is_conflict_query:
+                        note = "\nNote: This patient was recently added — no cross-source conflict analysis available yet."
                     messages.append({
                         "role": "system",
-                        "content": (
-                            f"PATIENT RECORD FOR {sid}:\n{json.dumps(resp.data[0], indent=2, default=str)}\n\n"
-                            f"Note: This patient was recently added and has not been cross-referenced with other sources yet, so no conflict analysis is available."
-                        ),
+                        "content": f"PATIENT RECORD FOR {sid}:\n{json.dumps(resp.data[0], indent=2, default=str)}{note}",
                     })
             except Exception:
                 pass
-
-    # Simple patient info path: patient ID, no conflict query → inject raw record
-    elif _id_match and not patient_context:
-        sid = _id_match.group(0).upper()
-        try:
-            from supabase import create_client as _sc
-            _sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
-            resp = (
-                _sb.table("source_records")
-                .select("source_ref_id, source, name, dob, nic, phone, address, medications, allergies, blood_type")
-                .eq("source_ref_id", sid)
-                .execute()
-            )
-            if resp.data:
-                messages.append({
-                    "role": "system",
-                    "content": f"PATIENT RECORD FOR {sid}:\n{json.dumps(resp.data[0], indent=2, default=str)}",
-                })
-        except Exception:
-            pass
 
     # Single LLM call — no tool loop needed since data is already injected
     def _llm_call(model: str):
@@ -662,6 +730,35 @@ def list_notifications(unread_only: bool = False, limit: int = 20, source: str =
 def read_notifications(ids: list[str]):
     mark_read(ids)
     return {"ok": True}
+
+
+@app.delete("/notifications/{notification_id}")
+def delete_notification(notification_id: str):
+    """Delete a single notification by ID."""
+    try:
+        from supabase import create_client as _sc
+        sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+        sb.table("notifications").delete().eq("id", notification_id).execute()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/notifications")
+def clear_notifications(source: str = ""):
+    """Delete all notifications, optionally filtered by source prefix (CLN/LAB/PHM)."""
+    try:
+        from supabase import create_client as _sc
+        sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+        query = sb.table("notifications").delete()
+        if source:
+            query = query.like("source_ref_id", f"{source.upper()}-%")
+        else:
+            query = query.neq("id", "00000000-0000-0000-0000-000000000000")  # delete all
+        query.execute()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def _build_reconcile_response(report: AgentReport) -> ReconcileResponse:
