@@ -42,7 +42,8 @@ Intent rules (READ CAREFULLY — ambiguous cases are explained):
   "add aspirin to CLN-001 medications" = db_update (no interaction check, just append).
 
 - "query": user wants to LIST or SEARCH records — not update, not prescribe.
-  Keywords: show, list, find, search, which patients, all patients, history, what prescriptions, unresolved escalations.
+  Keywords: show, list, find, search, tell me about, what is, which patients, all patients, history, what prescriptions, unresolved escalations.
+  When the user asks about a specific patient ID (e.g. "tell me about CLN-004", "show CLN-004", "what is CLN-004"), use query_type="search" and set source_ref_id to that ID.
   Examples: "show all patients", "list prescriptions for CLN-001", "which patients have warfarin", "show unresolved escalations".
 
 - "reconcile": user wants conflict/safety analysis for a specific patient ID.
@@ -89,8 +90,11 @@ Return ONLY valid JSON. No explanation. No markdown. Examples:
 {"intent": "db_update", "params": {"operation": "resolve_escalation", "source_ref_id": "CLN-003"}}
 {"intent": "db_update", "params": {"operation": "update_prescription", "source_ref_id": "CLN-001", "value": "aspirin", "status": "discontinued"}}
 {"intent": "query", "params": {"query_type": "all_patients"}}
+{"intent": "query", "params": {"query_type": "search", "source_ref_id": "CLN-004"}}
 {"intent": "query", "params": {"query_type": "prescriptions", "source_ref_id": "CLN-001"}}
 {"intent": "query", "params": {"query_type": "escalations", "filter": "unresolved"}}
+{"intent": "query", "params": {"query_type": "medications", "source_ref_id": "CLN-001"}}
+{"intent": "query", "params": {"query_type": "allergies", "source_ref_id": "CLN-002"}}
 {"intent": "query", "params": {"query_type": "search", "filter": "warfarin"}}
 """
 

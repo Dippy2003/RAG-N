@@ -147,6 +147,7 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage] = []
     source_ref_id: str = ""
     reconciliation_context: dict | None = None   # full ReconcileResponse JSON from frontend
+    forced_intent: str = ""                       # bypass router: "register"|"prescribe"|"query"|"reconcile"|"db_update"|"chat"
 
 
 class ChatResponse(BaseModel):
@@ -449,10 +450,17 @@ def chat(req: ChatRequest):
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
 
-    # ── Router: classify intent first ──────────────────────────────────────
-    route_result = route(req.message)
-    intent = route_result.get("intent", "chat")
-    params = route_result.get("params", {})
+    # ── Router: classify intent (or use forced_intent to bypass) ──────────
+    _valid_intents = {"register", "update", "db_update", "prescribe", "query", "reconcile", "chat"}
+    if req.forced_intent and req.forced_intent in _valid_intents:
+        intent = req.forced_intent
+        # Still run router to extract params, but override the intent
+        route_result = route(req.message)
+        params = route_result.get("params", {})
+    else:
+        route_result = route(req.message)
+        intent = route_result.get("intent", "chat")
+        params = route_result.get("params", {})
 
     if intent in ("register", "update"):
         # For update: find the patient by name if no source_ref_id given

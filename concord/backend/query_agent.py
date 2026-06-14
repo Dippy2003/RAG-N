@@ -64,7 +64,9 @@ def run_query(params: dict) -> QueryResult:
             return _notifications(sb, source_ref_id, filter_val, source)
 
         if query_type == "search":
-            return _search(sb, filter_val, source)
+            # Router sometimes puts the ID in source_ref_id instead of filter
+            term = filter_val or source_ref_id
+            return _search(sb, term, source)
 
         return QueryResult(success=False, query_type=query_type, message=f"Unknown query type: {query_type}")
 
@@ -195,48 +197,59 @@ def _notifications(sb, source_ref_id: str, filter_val: str, source: str) -> Quer
 
 
 def _search(sb, filter_val: str, source: str) -> QueryResult:
-    """Search patients by medication name, allergy, blood type, or name fragment."""
+    """Search patients by source_ref_id, name, blood type, medication, or allergy."""
     if not filter_val:
         return QueryResult(success=False, query_type="search", message="Provide a search term.")
 
     results = []
+    seen: set[str] = set()
 
-    # Search by name
-    name_resp = sb.table("source_records").select(
-        "source_ref_id, source, name, dob, blood_type, medications, allergies"
-    ).ilike("name", f"%{filter_val}%").limit(20).execute()
-    results.extend(name_resp.data or [])
+    def add(rows: list[dict]) -> None:
+        for r in rows:
+            ref = r.get("source_ref_id", "")
+            if ref not in seen:
+                seen.add(ref)
+                results.append(r)
 
-    # Search by blood type
-    bt_resp = sb.table("source_records").select(
-        "source_ref_id, source, name, dob, blood_type, medications, allergies"
-    ).ilike("blood_type", f"%{filter_val}%").limit(20).execute()
-    for r in (bt_resp.data or []):
-        if r["source_ref_id"] not in {x["source_ref_id"] for x in results}:
-            results.append(r)
+    cols = "source_ref_id, source, name, dob, blood_type, medications, allergies"
 
-    # Search patients whose medications contain the term
-    all_records = sb.table("source_records").select(
-        "source_ref_id, source, name, dob, medications, allergies"
-    ).limit(200).execute()
+    # 1. Exact source_ref_id match (e.g. "CLN-004")
+    ref_upper = filter_val.upper()
+    ref_resp = sb.table("source_records").select(cols).eq("source_ref_id", ref_upper).execute()
+    add(ref_resp.data or [])
 
+    # 2. Partial source_ref_id prefix (e.g. "CLN")
+    if not results:
+        prefix_resp = sb.table("source_records").select(cols).ilike("source_ref_id", f"{ref_upper}%").limit(20).execute()
+        add(prefix_resp.data or [])
+
+    # 3. Name search
+    name_resp = sb.table("source_records").select(cols).ilike("name", f"%{filter_val}%").limit(20).execute()
+    add(name_resp.data or [])
+
+    # 4. Blood type
+    bt_resp = sb.table("source_records").select(cols).ilike("blood_type", f"%{filter_val}%").limit(20).execute()
+    add(bt_resp.data or [])
+
+    # 5. Medications / allergies (scan all, filter in Python)
+    all_records = sb.table("source_records").select(cols).limit(200).execute()
+    fv = filter_val.lower()
     for r in (all_records.data or []):
-        ref = r["source_ref_id"]
-        if ref in {x["source_ref_id"] for x in results}:
+        if r.get("source_ref_id") in seen:
             continue
-        meds = r.get("medications") or []
-        allergies = r.get("allergies") or []
-        med_strs = [str(m).lower() for m in meds]
-        allergy_strs = [str(a).lower() for a in allergies]
-        if any(filter_val in m for m in med_strs) or any(filter_val in a for a in allergy_strs):
+        meds      = [str(m).lower() for m in (r.get("medications") or [])]
+        allergies = [str(a).lower() for a in (r.get("allergies")   or [])]
+        if any(fv in m for m in meds) or any(fv in a for a in allergies):
+            seen.add(r["source_ref_id"])
             results.append(r)
 
-    # Filter by source if given
+    # 6. Filter by source prefix if caller specified one
     if source in ("CLN", "LAB", "PHM"):
         results = [r for r in results if r.get("source_ref_id", "").startswith(source)]
 
     return QueryResult(
         success=True, query_type="search",
         rows=results[:50], total=len(results),
-        message=f"Found {len(results)} patient(s) matching '{filter_val}'.",
+        message=f"Found {len(results)} patient(s) matching '{filter_val}'." if results
+                else f"No patient found matching '{filter_val}'.",
     )
