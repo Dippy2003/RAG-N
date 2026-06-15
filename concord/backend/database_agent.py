@@ -348,8 +348,8 @@ class DatabaseToolExecutor:
             try:
                 from embed_records import re_embed_record
                 re_embed_record(source_ref_id.upper())
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[database-agent] WARNING: re-embedding failed for {source_ref_id}: {e} — identity matching may be degraded")
 
         self._result = DbUpdateResult(
             success=True, table="source_records", record_id=source_ref_id,

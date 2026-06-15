@@ -65,8 +65,13 @@ def run_escalation_review(
             reconciliation, esc.field
         )
         if adjudication_id is None:
-            print(f"[escalation] WARNING: no adjudication found for field '{esc.field}', skipping DB write")
-            continue
+            # No matching adjudication — write the escalation against the first available one,
+            # or create a sentinel row so the conflict is never silently lost.
+            if not reconciliation.adjudication_ids:
+                print(f"[escalation] ERROR: no adjudication IDs at all for field '{esc.field}' — escalation lost")
+                continue
+            adjudication_id = reconciliation.adjudication_ids[0]
+            print(f"[escalation] WARNING: no adjudication matched field '{esc.field}', using {adjudication_id}")
 
         row = supabase.table("escalations").insert({
             "adjudication_id": adjudication_id,
@@ -91,8 +96,10 @@ def _find_adjudication_id(reconciliation: ReconciliationResult, field: str) -> s
     for i, conflict in enumerate(reconciliation.conflicts):
         if conflict["field"] == field and i < len(reconciliation.adjudication_ids):
             return reconciliation.adjudication_ids[i]
-    # fallback: return first adjudication if only one
-    if reconciliation.adjudication_ids:
+    # No field match — only fall back to first ID when there is exactly one conflict
+    # (unambiguous). With multiple conflicts, returning the first would assign the
+    # wrong adjudication, so return None and let the caller decide.
+    if len(reconciliation.conflicts) == 1 and reconciliation.adjudication_ids:
         return reconciliation.adjudication_ids[0]
     return None
 

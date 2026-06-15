@@ -413,12 +413,12 @@ def validate_identity(
     if executor._result is None:
         return IdentityValidationResult(
             given_id=source_ref_id,
-            is_correct=True,
+            is_correct=False,
             correct_id=source_ref_id,
-            confidence=0.5,
+            confidence=0.0,
             mismatch_fields=[],
             field_details=[],
-            explanation="Identity validation inconclusive. Proceeding with given ID.",
+            explanation="Identity validation did not complete — treat as unverified. Manual review required.",
             patient_name_found="",
         )
 

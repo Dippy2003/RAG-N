@@ -60,9 +60,11 @@ def create_notification(
         resp = sb.table("notifications").insert(record).execute()
         if resp.data:
             return resp.data[0]
+        print(f"[notification-agent] WARNING: insert returned no data for '{title}' — notification may not have persisted")
     except Exception as e:
-        print(f"[notification-agent] Failed to store notification: {e}")
-    return record
+        print(f"[notification-agent] ERROR: failed to store notification '{title}': {e}")
+    # Return local record with a flag so callers know it wasn't persisted
+    return {**record, "_persisted": False}
 
 
 def get_notifications(unread_only: bool = False, limit: int = 20) -> list[dict]:

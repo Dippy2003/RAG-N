@@ -178,8 +178,8 @@ class RegistrationToolExecutor:
         try:
             from embed_records import re_embed_record
             re_embed_record(new_id)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[registration-agent] WARNING: embedding failed for {new_id}: {e} — identity matching may be degraded")
 
         # Set result directly — don't rely on LLM to pass the ID back
         self._result = RegistrationResult(

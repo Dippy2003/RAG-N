@@ -476,13 +476,14 @@ def chat(req: ChatRequest):
 
     # ── Router: classify intent (or use forced_intent to bypass) ──────────
     _valid_intents = {"register", "update", "db_update", "prescribe", "query", "reconcile", "add_guideline", "chat"}
+    _history_dicts = [{"role": m.role, "content": m.content} for m in req.history[-6:]]
     if req.forced_intent and req.forced_intent in _valid_intents:
         intent = req.forced_intent
-        # Still run router to extract params, but override the intent
-        route_result = route(req.message)
+        # Still run router to extract params (with history for reference resolution)
+        route_result = route(req.message, history=_history_dicts)
         params = route_result.get("params", {})
     else:
-        route_result = route(req.message)
+        route_result = route(req.message, history=_history_dicts)
         intent = route_result.get("intent", "chat")
         params = route_result.get("params", {})
 
@@ -613,6 +614,44 @@ def chat(req: ChatRequest):
                                 action_data={"source_ref_id": rx.source_ref_id, "patient_name": rx.patient_name, "drug": rx.drug})
 
         raise HTTPException(status_code=500, detail=rx.reason)
+
+    if intent == "db_update" and params.get("operation") == "rename_id":
+        old_id = (params.get("source_ref_id") or "").strip().upper()
+        new_id = (params.get("new_id") or "").strip().upper()
+        if not old_id or not new_id:
+            return ChatResponse(reply="Please provide both the current ID and the new ID. Example: 'rename CLN-004 to CLN-006'")
+        if old_id == new_id:
+            return ChatResponse(reply=f"The ID is already {old_id}. No change needed.")
+        try:
+            from supabase import create_client as _sc
+            _sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+            # Check old ID exists
+            existing = _sb.table("source_records").select("source_ref_id, name").eq("source_ref_id", old_id).execute()
+            if not existing.data:
+                return ChatResponse(reply=f"No patient found with ID **{old_id}**. Please check the ID and try again.")
+            patient_name = existing.data[0].get("name", "")
+            # Check new ID not already taken
+            conflict = _sb.table("source_records").select("source_ref_id").eq("source_ref_id", new_id).execute()
+            if conflict.data:
+                return ChatResponse(reply=f"ID **{new_id}** is already in use by another patient. Choose a different ID.")
+            # Cascade rename across all tables
+            _sb.table("source_records").update({"source_ref_id": new_id}).eq("source_ref_id", old_id).execute()
+            for tbl in ("prescriptions", "escalations", "notifications"):
+                try:
+                    _sb.table(tbl).update({"source_ref_id": new_id}).eq("source_ref_id", old_id).execute()
+                except Exception:
+                    pass  # table may not have the column or may not exist
+            _recon_cache.pop(old_id, None)
+            _recon_cache.pop(new_id, None)
+            return ChatResponse(
+                reply=f"Patient ID renamed successfully.\n\n**{old_id}** → **{new_id}**\n**Patient:** {patient_name}\n\nAll prescriptions, escalations, and notifications have been updated to the new ID.",
+                action="db_updated",
+                action_data={"source_ref_id": new_id, "patient_name": patient_name},
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Rename failed: {e!s}")
 
     if intent == "db_update":
         try:

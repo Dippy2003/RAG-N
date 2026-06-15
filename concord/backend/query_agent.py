@@ -8,7 +8,16 @@ Supports:
   medications      — list medications for a patient
   allergies        — list allergies for a patient
   notifications    — list notifications (optionally unread only)
-  search           — find patients by medication, allergy, blood type, or name keyword
+  search           — find patients by any field:
+                       • source_ref_id (CLN-001)
+                       • name (partial, case-insensitive)
+                       • NIC number (exact or partial)
+                       • phone number (exact or partial)
+                       • date of birth (YYYY-MM-DD or partial)
+                       • blood type (A+, B-, O+…)
+                       • medication name (any med in their list)
+                       • allergy name (any allergy in their list)
+                       • vector similarity (fuzzy name / phonetic match via embeddings)
 """
 
 import os
@@ -197,59 +206,95 @@ def _notifications(sb, source_ref_id: str, filter_val: str, source: str) -> Quer
 
 
 def _search(sb, filter_val: str, source: str) -> QueryResult:
-    """Search patients by source_ref_id, name, blood type, medication, or allergy."""
+    """Search patients by any identifier or clinical value, plus vector similarity fallback."""
     if not filter_val:
         return QueryResult(success=False, query_type="search", message="Provide a search term.")
 
-    results = []
+    results: list[dict] = []
     seen: set[str] = set()
 
     def add(rows: list[dict]) -> None:
         for r in rows:
             ref = r.get("source_ref_id", "")
-            if ref not in seen:
+            if ref and ref not in seen:
                 seen.add(ref)
                 results.append(r)
 
-    cols = "source_ref_id, source, name, dob, blood_type, medications, allergies"
-
-    # 1. Exact source_ref_id match (e.g. "CLN-004")
+    cols = "source_ref_id, source, name, dob, nic, phone, blood_type, medications, allergies"
     ref_upper = filter_val.upper()
-    ref_resp = sb.table("source_records").select(cols).eq("source_ref_id", ref_upper).execute()
-    add(ref_resp.data or [])
+    fv = filter_val.lower().strip()
 
-    # 2. Partial source_ref_id prefix (e.g. "CLN")
+    # 1. Exact source_ref_id  (CLN-004)
+    add((sb.table("source_records").select(cols).eq("source_ref_id", ref_upper).execute()).data or [])
+
+    # 2. Partial source_ref_id prefix  (CLN, LAB-0)
     if not results:
-        prefix_resp = sb.table("source_records").select(cols).ilike("source_ref_id", f"{ref_upper}%").limit(20).execute()
-        add(prefix_resp.data or [])
+        add((sb.table("source_records").select(cols).ilike("source_ref_id", f"{ref_upper}%").limit(20).execute()).data or [])
 
-    # 3. Name search
-    name_resp = sb.table("source_records").select(cols).ilike("name", f"%{filter_val}%").limit(20).execute()
-    add(name_resp.data or [])
+    # 3. Exact NIC  (200334511790)
+    add((sb.table("source_records").select(cols).eq("nic", filter_val).execute()).data or [])
 
-    # 4. Blood type
-    bt_resp = sb.table("source_records").select(cols).ilike("blood_type", f"%{filter_val}%").limit(20).execute()
-    add(bt_resp.data or [])
+    # 4. Partial NIC  (last 4 digits, prefix, etc.)
+    add((sb.table("source_records").select(cols).ilike("nic", f"%{filter_val}%").limit(20).execute()).data or [])
 
-    # 5. Medications / allergies (scan all, filter in Python)
-    all_records = sb.table("source_records").select(cols).limit(200).execute()
-    fv = filter_val.lower()
-    for r in (all_records.data or []):
+    # 5. Phone number  (exact or partial)
+    add((sb.table("source_records").select(cols).ilike("phone", f"%{filter_val}%").limit(20).execute()).data or [])
+
+    # 7. Name  (partial, case-insensitive)
+    add((sb.table("source_records").select(cols).ilike("name", f"%{filter_val}%").limit(20).execute()).data or [])
+
+    # 8. Blood type  (A+, B-, O+, AB-)
+    add((sb.table("source_records").select(cols).ilike("blood_type", f"%{filter_val}%").limit(20).execute()).data or [])
+
+    # 9. Medication / allergy / DOB (scan up to 500 records, filter in Python)
+    #    DOB is a date column — ilike doesn't work on it, so we cast to str here.
+    scan = (sb.table("source_records").select(cols).limit(500).execute()).data or []
+    for r in scan:
         if r.get("source_ref_id") in seen:
             continue
         meds      = [str(m).lower() for m in (r.get("medications") or [])]
         allergies = [str(a).lower() for a in (r.get("allergies")   or [])]
-        if any(fv in m for m in meds) or any(fv in a for a in allergies):
+        dob_str   = str(r.get("dob") or "").lower()
+        if (any(fv in m for m in meds)
+                or any(fv in a for a in allergies)
+                or (fv and fv in dob_str)):
             seen.add(r["source_ref_id"])
             results.append(r)
 
-    # 6. Filter by source prefix if caller specified one
+    # 10. Vector similarity fallback — catches phonetic / misspelling variants
+    #     Only runs when the exact searches found nothing (avoids unnecessary compute)
+    if not results:
+        try:
+            from rag_retriever import _get_model
+            from supabase import create_client as _sc
+            model = _get_model()
+            query_vec = model.encode(filter_val, normalize_embeddings=True).tolist()
+            # Call the Supabase RPC that does cosine similarity against patient embeddings
+            sim_resp = sb.rpc("match_patient_records", {
+                "query_embedding": query_vec,
+                "match_threshold": 0.60,
+                "match_count": 10,
+            }).execute()
+            for r in (sim_resp.data or []):
+                if r.get("source_ref_id") not in seen:
+                    seen.add(r["source_ref_id"])
+                    results.append({**r, "_match_type": "vector_similarity"})
+        except Exception:
+            pass  # vector search is a best-effort fallback
+
+    # 11. Filter by source prefix (CLN / LAB / PHM) if caller specified
     if source in ("CLN", "LAB", "PHM"):
         results = [r for r in results if r.get("source_ref_id", "").startswith(source)]
+
+    # Annotate match types for the LLM to explain to the user
+    msg = (
+        f"Found {len(results)} patient(s) matching '{filter_val}'."
+        if results
+        else f"No patient found matching '{filter_val}'. Searched by ID, NIC, phone, DOB, name, blood type, medications, and allergies."
+    )
 
     return QueryResult(
         success=True, query_type="search",
         rows=results[:50], total=len(results),
-        message=f"Found {len(results)} patient(s) matching '{filter_val}'." if results
-                else f"No patient found matching '{filter_val}'.",
+        message=msg,
     )

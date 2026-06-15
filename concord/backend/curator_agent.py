@@ -110,7 +110,12 @@ def _classify(text: str) -> dict:
 
     raw = (resp.choices[0].message.content or "").strip()
     raw = raw.strip("`").removeprefix("json").strip()
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        # LLM returned malformed JSON — extract what we can, use safe defaults
+        print(f"[curator-agent] WARNING: LLM returned non-JSON, using safe defaults. Raw: {raw[:200]}")
+        data = {}
 
     # Normalise / validate
     category = str(data.get("category", "")).strip().lower()

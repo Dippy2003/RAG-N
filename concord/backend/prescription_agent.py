@@ -156,7 +156,13 @@ class PrescriptionToolExecutor:
             .execute()
         )
         if not resp.data:
-            return json.dumps({"error": f"No record found for {source_ref_id}"})
+            self._result = PrescriptionResult(
+                success=False, action="error",
+                source_ref_id=source_ref_id, patient_name="", drug="",
+                reason=f"Patient {source_ref_id} not found — prescription aborted.",
+            )
+            self._done = True
+            return json.dumps({"error": f"Patient {source_ref_id} not found. Prescription aborted."})
         r = resp.data[0]
         self._patient_name = r.get("name", "")
         return json.dumps({
@@ -343,9 +349,16 @@ def process_prescription(source_ref_id: str, drug: str, dosage: str = "", notes:
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
     if executor._result is None:
+        action = "timeout" if turns >= MAX_TURNS else "error"
+        reason = (
+            "Prescription check timed out (too many reasoning steps). Please retry."
+            if action == "timeout"
+            else "Could not complete prescription check."
+        )
+        print(f"[prescription-agent] {action.upper()}: {reason}")
         return PrescriptionResult(
-            success=False, action="error", source_ref_id=source_ref_id,
-            patient_name="", drug=drug, reason="Could not complete prescription check.",
+            success=False, action=action, source_ref_id=source_ref_id,
+            patient_name="", drug=drug, reason=reason,
         )
 
     return executor._result
