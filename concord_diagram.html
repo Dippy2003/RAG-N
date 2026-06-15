@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Concord — System Workflow</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: #0a0a0f;
+    color: #e2e8f0;
+    padding: 40px;
+  }
+
+  @media print {
+    body { background: #fff; color: #111; padding: 20px; }
+    .card { border-color: #ccc !important; background: #f9f9f9 !important; }
+    .badge { color: #111 !important; }
+    h1, h2, h3, .label { color: #111 !important; }
+    .arrow { color: #555 !important; }
+    .section-title { color: #333 !important; border-color: #999 !important; }
+    .tag { background: #eee !important; color: #333 !important; }
+    .highlight { background: #fffbe6 !important; border-color: #f0a500 !important; }
+    .llm-call { background: #e8f4e8 !important; border-color: #2e7d32 !important; }
+    .rag-box { background: #e3f2fd !important; border-color: #1565c0 !important; }
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 26px;
+    font-weight: 800;
+    color: #5eead4;
+    letter-spacing: 2px;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    text-align: center;
+    font-size: 13px;
+    color: #94a3b8;
+    margin-bottom: 36px;
+    letter-spacing: 1px;
+  }
+
+  /* ── Layout ── */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 24px;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 24px;
+  }
+
+  /* ── Cards ── */
+  .card {
+    border: 1.5px solid #2d3748;
+    border-radius: 12px;
+    padding: 16px 18px;
+    background: #141420;
+  }
+  .card h3 {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .card ul {
+    list-style: none;
+    padding: 0;
+  }
+  .card ul li {
+    font-size: 12px;
+    color: #94a3b8;
+    padding: 3px 0;
+    border-bottom: 1px solid #1e2535;
+  }
+  .card ul li:last-child { border-bottom: none; }
+  .card ul li::before { content: "→ "; color: #5eead4; }
+
+  .highlight {
+    border-color: #f59e0b;
+    background: #1a1505;
+  }
+  .highlight h3 { color: #fbbf24; }
+
+  .llm-call {
+    border-color: #10b981;
+    background: #051a10;
+  }
+  .llm-call h3 { color: #34d399; }
+
+  .rag-box {
+    border-color: #6366f1;
+    background: #0d0d1f;
+  }
+  .rag-box h3 { color: #818cf8; }
+
+  .danger {
+    border-color: #ef4444;
+    background: #1a0505;
+  }
+  .danger h3 { color: #f87171; }
+
+  /* ── Main flow ── */
+  .flow-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 0;
+    justify-content: center;
+  }
+  .flow-box {
+    border: 1.5px solid #2d3748;
+    border-radius: 10px;
+    padding: 12px 16px;
+    background: #141420;
+    min-width: 160px;
+    text-align: center;
+    font-size: 12px;
+  }
+  .flow-box .label {
+    font-weight: 700;
+    font-size: 13px;
+    color: #e2e8f0;
+    display: block;
+    margin-bottom: 4px;
+  }
+  .flow-box .desc {
+    color: #64748b;
+    font-size: 11px;
+  }
+  .arrow-down {
+    text-align: center;
+    font-size: 20px;
+    color: #5eead4;
+    line-height: 28px;
+    margin: 0 auto;
+  }
+  .arrow-right {
+    font-size: 20px;
+    color: #5eead4;
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+  }
+
+  /* ── Section headers ── */
+  .section-title {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #5eead4;
+    border-bottom: 1px solid #1e3a3a;
+    padding-bottom: 6px;
+    margin-bottom: 16px;
+    margin-top: 28px;
+  }
+
+  /* ── Tags / badges ── */
+  .tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 99px;
+    background: #1e293b;
+    color: #94a3b8;
+    margin: 2px 2px;
+  }
+  .tag.green  { background: #052e16; color: #4ade80; }
+  .tag.blue   { background: #0c1a3a; color: #60a5fa; }
+  .tag.amber  { background: #1c1100; color: #fbbf24; }
+  .tag.red    { background: #1a0505; color: #f87171; }
+  .tag.violet { background: #130f27; color: #a78bfa; }
+  .tag.teal   { background: #022020; color: #2dd4bf; }
+
+  /* ── Agentic loop ── */
+  .loop-wrapper {
+    border: 2px solid #5eead4;
+    border-radius: 16px;
+    padding: 20px;
+    background: #050e0e;
+    margin-bottom: 24px;
+  }
+  .loop-title {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 800;
+    color: #5eead4;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  .loop-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 10px;
+  }
+  .step-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #5eead4;
+    color: #051a10;
+    font-weight: 900;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .step-num.llm {
+    background: #34d399;
+    color: #051a10;
+  }
+  .step-body {
+    flex: 1;
+  }
+  .step-body strong {
+    font-size: 13px;
+    color: #e2e8f0;
+    display: block;
+    margin-bottom: 2px;
+  }
+  .step-body p {
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.5;
+  }
+  .step-connector {
+    width: 28px;
+    text-align: center;
+    color: #2d4a4a;
+    font-size: 18px;
+    line-height: 14px;
+    padding-left: 0;
+    margin-left: 0;
+    padding-bottom: 4px;
+  }
+
+  /* ── DB table ── */
+  .db-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .db-table {
+    background: #0f172a;
+    border: 1px solid #1e3a5f;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+  .db-table .tname {
+    color: #60a5fa;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .db-table .tfield {
+    color: #475569;
+    font-size: 10px;
+    line-height: 1.6;
+  }
+
+  /* ── Side agents ── */
+  .side-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  /* ── Two-call callout ── */
+  .two-call-banner {
+    background: linear-gradient(135deg, #052e16, #0d2a0d);
+    border: 2px solid #16a34a;
+    border-radius: 12px;
+    padding: 14px 20px;
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .two-call-banner h2 {
+    font-size: 16px;
+    color: #4ade80;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+  .two-call-banner p {
+    font-size: 11px;
+    color: #86efac;
+  }
+
+  /* ── Stack row ── */
+  .stack-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 24px;
+    justify-content: center;
+  }
+  .stack-pill {
+    border: 1.5px solid #2d3748;
+    border-radius: 99px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #141420;
+  }
+
+  hr.divider {
+    border: none;
+    border-top: 1px solid #1e293b;
+    margin: 28px 0;
+  }
+
+  .footer {
+    text-align: center;
+    font-size: 10px;
+    color: #334155;
+    margin-top: 32px;
+  }
+</style>
+</head>
+<body>
+
+<h1>CONCORD</h1>
+<div class="subtitle">Autonomous Clinical Record Reconciliation — System Architecture</div>
+
+<!-- Tech Stack -->
+<div class="stack-row">
+  <div class="stack-pill" style="color:#5eead4;border-color:#5eead4">Next.js 15 Frontend</div>
+  <div class="stack-pill" style="color:#f59e0b;border-color:#f59e0b">FastAPI Backend</div>
+  <div class="stack-pill" style="color:#34d399;border-color:#34d399">Groq Llama 3.3-70B</div>
+  <div class="stack-pill" style="color:#818cf8;border-color:#818cf8">Supabase + pgvector</div>
+  <div class="stack-pill" style="color:#f472b6;border-color:#f472b6">all-MiniLM-L6-v2 (local)</div>
+  <div class="stack-pill" style="color:#fb923c;border-color:#fb923c">Sentence Transformers</div>
+</div>
+
+<!-- Key claim -->
+<div class="two-call-banner">
+  <h2>⚡ Only 2 LLM Calls Per Full Reconciliation</h2>
+  <p>ALL conflicts batched into Call 1 · ALL escalation review in Call 2 · No per-conflict LLM calls · Stays inside free tier</p>
+</div>
+
+<!-- ── REQUEST FLOW ── -->
+<div class="section-title">① Request Flow — Clinician to Router</div>
+<div class="grid-3">
+  <div class="card">
+    <h3 style="color:#5eead4">Clinician Input</h3>
+    <ul>
+      <li>Types patient ID or natural language</li>
+      <li>Selects role: Clinic / Lab / Pharmacy</li>
+      <li>Frontend sends POST /chat with message + history</li>
+      <li>Last 6 messages sent for context resolution</li>
+    </ul>
+  </div>
+  <div class="card highlight">
+    <h3>Router Agent (LLM)</h3>
+    <ul>
+      <li>Groq classifies the message intent</li>
+      <li>Receives conversation history to resolve "this patient"</li>
+      <li>Returns: intent + extracted params as JSON</li>
+    </ul>
+    <div style="margin-top:10px">
+      <span class="tag teal">register</span>
+      <span class="tag teal">reconcile</span>
+      <span class="tag teal">prescribe</span>
+      <span class="tag teal">query</span>
+      <span class="tag teal">db_update</span>
+      <span class="tag teal">add_guideline</span>
+      <span class="tag teal">chat</span>
+    </div>
+  </div>
+  <div class="card">
+    <h3 style="color:#94a3b8">Response Back</h3>
+    <ul>
+      <li>Conflict cards with rationale</li>
+      <li>Clickable citation chips (RAG sources)</li>
+      <li>Action cards (registered / blocked / updated)</li>
+      <li>Notification bell (critical alerts)</li>
+      <li>Slide-over guideline panel</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ── AGENTIC LOOP ── -->
+<div class="section-title">② The Agentic Loop — Core of Concord</div>
+<div class="loop-wrapper">
+  <div class="loop-title">🔄 Reconciliation Pipeline (triggered by "reconcile" intent)</div>
+
+  <div class="loop-step">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <strong>Fan Out — Pull Records from All Sources</strong>
+      <p>Fetches source_records from clinic, lab, and pharmacy tables in Supabase. Each source has its own prefix: CLN-xxx, LAB-xxx, PHM-xxx.</p>
+    </div>
+    <div><span class="tag blue">CODE only</span></div>
+  </div>
+  <div class="step-connector" style="padding-left:14px">│</div>
+
+  <div class="loop-step">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <strong>Identity Matching — Vector Similarity via pgvector</strong>
+      <p>Encodes name + DOB + NIC with all-MiniLM-L6-v2 (local, free). Runs cosine similarity in Supabase pgvector to cluster records that belong to the same physical patient across sources.</p>
+    </div>
+    <div><span class="tag blue">CODE only</span></div>
+  </div>
+  <div class="step-connector" style="padding-left:14px">│</div>
+
+  <div class="loop-step">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <strong>Conflict Detection — Deterministic Rules (No LLM)</strong>
+      <p>Compares fields across matched records: medication mismatches, allergy conflicts, blood type clashes, dosing contradictions. Pure code — fast, auditable, zero LLM cost.</p>
+    </div>
+    <div><span class="tag blue">CODE only</span></div>
+  </div>
+  <div class="step-connector" style="padding-left:14px">│</div>
+
+  <div class="loop-step">
+    <div class="step-num">4</div>
+    <div class="step-body">
+      <strong>RAG Retrieval — Clinical Guidelines Injected as Context</strong>
+      <p>Each conflict description is embedded and searched against medical_guidelines (pgvector). Top-k guidelines retrieved by cosine similarity, filtered by category and severity, injected into the LLM prompt.</p>
+    </div>
+    <div><span class="tag violet">RAG</span></div>
+  </div>
+  <div class="step-connector" style="padding-left:14px">│</div>
+
+  <div class="loop-step">
+    <div class="step-num llm">5</div>
+    <div class="step-body">
+      <strong>LLM CALL 1 — Batch Adjudication</strong>
+      <p>ALL conflicts sent in ONE prompt. Returns structured JSON: per conflict → trusted_value, action, rationale, confidence, severity. Uses Groq Llama 3.3-70B with structured output.</p>
+    </div>
+    <div><span class="tag green">LLM CALL 1</span></div>
+  </div>
+  <div class="step-connector" style="padding-left:14px">│</div>
+
+  <div class="loop-step">
+    <div class="step-num">6</div>
+    <div class="step-body">
+      <strong>Execute Actions — Write Resolutions to Supabase</strong>
+      <p>Applies the adjudication decisions: updates source_records, writes adjudication rows, logs detected conflicts. All deterministic code — no LLM needed.</p>
+    </div>
+    <div><span class="tag blue">CODE only</span></div>
+  </div>
+  <div class="step-connector" style="padding-left:14px">│</div>
+
+  <div class="loop-step">
+    <div class="step-num llm">7</div>
+    <div class="step-body">
+      <strong>LLM CALL 2 — Escalation Review</strong>
+      <p>Reviews all resolved actions. Flags low-confidence items for clinician attention. Writes escalation rows to Supabase. Triggers notifications. This is the safety net.</p>
+    </div>
+    <div><span class="tag green">LLM CALL 2</span></div>
+  </div>
+</div>
+
+<!-- ── RAG SYSTEM ── -->
+<div class="section-title">③ RAG Knowledge Base — Live at Every Decision Point</div>
+<div class="grid-3">
+  <div class="card rag-box">
+    <h3>Knowledge Base</h3>
+    <ul>
+      <li>medical_guidelines table in Supabase</li>
+      <li>Each row: title, content, category, severity, tags, embedding vector</li>
+      <li>Categories: drug_interaction / allergy_mismatch / data_integrity</li>
+      <li>Severity: critical / high / medium / low</li>
+    </ul>
+  </div>
+  <div class="card rag-box">
+    <h3>Retrieval Thresholds</h3>
+    <ul>
+      <li>Prescription check: 0.30 (precision)</li>
+      <li>Conflict resolution: 0.25 (wider net)</li>
+      <li>Chat / Q&amp;A: 0.35 (confident only)</li>
+      <li>Re-ranked by severity weight (critical ×2.0)</li>
+      <li>Curator dedup threshold: 0.86</li>
+    </ul>
+  </div>
+  <div class="card rag-box">
+    <h3>Where RAG Is Used</h3>
+    <ul>
+      <li>Prescription → interaction check before issue/block</li>
+      <li>Reconciliation → guideline per conflict type</li>
+      <li>Chat → answers grounded in guidelines</li>
+      <li>Registration → risk flags on new patient</li>
+      <li>Blocked Rx → safe alternative suggestions</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ── SPECIALIST AGENTS ── -->
+<div class="section-title">④ Specialist Agents</div>
+<div class="side-grid">
+  <div class="card">
+    <h3 style="color:#f472b6">Prescription Agent</h3>
+    <ul>
+      <li>get_patient_record tool</li>
+      <li>check_interaction (RAG)</li>
+      <li>issue_prescription tool</li>
+      <li>block_prescription tool</li>
+      <li>Suggests safe alternatives on block</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="color:#fb923c">Curator Agent</h3>
+    <ul>
+      <li>Free text → LLM classify</li>
+      <li>Embed with same model</li>
+      <li>Dedup at 0.86 cosine sim</li>
+      <li>Insert to medical_guidelines</li>
+      <li>Live in next safety check</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="color:#a78bfa">Identity Agent</h3>
+    <ul>
+      <li>Runs parallel to reconcile</li>
+      <li>Validates patient ID vs name/DOB</li>
+      <li>Finds correct ID if mismatch</li>
+      <li>Re-runs reconcile on correction</li>
+      <li>Returns is_correct + confidence</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="color:#34d399">Notification Agent</h3>
+    <ul>
+      <li>Auto-fires on blocked Rx</li>
+      <li>Auto-fires on escalation</li>
+      <li>Auto-fires on conflict detect</li>
+      <li>Per-role filtering CLN/LAB/PHM</li>
+      <li>Bell icon on frontend</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ── DATABASE ── -->
+<div class="section-title">⑤ Supabase Database Schema</div>
+<div class="db-grid">
+  <div class="db-table">
+    <div class="tname">source_records</div>
+    <div class="tfield">source_ref_id (PK)<br>source (clinic/lab/phm)<br>name, dob, nic, phone<br>medications[], allergies[]<br>blood_type, cluster_id<br>embedding (vector)</div>
+  </div>
+  <div class="db-table">
+    <div class="tname">patient_clusters</div>
+    <div class="tfield">cluster_id (PK)<br>canonical_name<br>canonical_dob<br>canonical_nic<br>created_at</div>
+  </div>
+  <div class="db-table">
+    <div class="tname">detected_conflicts</div>
+    <div class="tfield">id (PK)<br>cluster_id (FK)<br>conflict_type<br>field<br>source_a, value_a<br>source_b, value_b<br>description</div>
+  </div>
+  <div class="db-table">
+    <div class="tname">adjudications</div>
+    <div class="tfield">id (PK)<br>conflict_id (FK)<br>action<br>chosen_value<br>rationale<br>confidence<br>guidelines_used[]</div>
+  </div>
+  <div class="db-table">
+    <div class="tname">escalations</div>
+    <div class="tfield">id (PK)<br>adjudication_id (FK)<br>reason<br>urgency<br>resolved (bool)<br>escalated_at</div>
+  </div>
+  <div class="db-table">
+    <div class="tname">prescriptions</div>
+    <div class="tfield">id (PK)<br>source_ref_id (FK)<br>drug, dosage<br>notes, status<br>active/blocked/discontinued<br>created_at</div>
+  </div>
+  <div class="db-table">
+    <div class="tname">notifications</div>
+    <div class="tfield">id (PK)<br>source_ref_id<br>patient_name<br>title, message<br>urgency, type<br>is_read, created_at</div>
+  </div>
+  <div class="db-table">
+    <div class="tname">medical_guidelines</div>
+    <div class="tfield">guideline_id (PK)<br>category, severity<br>title, content<br>tags<br>embedding (vector)<br>← RAG knowledge base</div>
+  </div>
+</div>
+
+<!-- ── SEARCH ── -->
+<div class="section-title">⑥ Patient Search — 10 Methods</div>
+<div class="grid-2">
+  <div class="card">
+    <h3 style="color:#60a5fa">Direct DB Lookups (PostgreSQL)</h3>
+    <ul>
+      <li>source_ref_id exact match (CLN-001)</li>
+      <li>NIC number — exact and partial</li>
+      <li>Phone number — partial match</li>
+      <li>Name — case-insensitive partial (ilike)</li>
+      <li>Blood type (A+, B-, O+…)</li>
+      <li>Medications — Python scan of array field</li>
+      <li>Allergies — Python scan of array field</li>
+      <li>Date of birth — Python string match</li>
+    </ul>
+  </div>
+  <div class="card rag-box">
+    <h3>Vector Similarity Fallback (RAG)</h3>
+    <ul>
+      <li>Only runs when all exact searches return nothing</li>
+      <li>Encodes search term with all-MiniLM-L6-v2</li>
+      <li>Cosine similarity against patient embeddings</li>
+      <li>Threshold: 0.60 — catches phonetic/spelling variants</li>
+      <li>e.g. "Nimal Perea" → finds "Nimal Perera"</li>
+    </ul>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ── HONEST DISCLOSURES ── -->
+<div class="section-title">⑦ What to Be Honest About in the Defense</div>
+<div class="grid-3">
+  <div class="card danger">
+    <h3>Seeded Data</h3>
+    <ul>
+      <li>Patient records are fake datasets</li>
+      <li>Contradictions are planted deliberately</li>
+      <li>Real integrations are mocked</li>
+      <li>Intelligence is real — data is not</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="color:#94a3b8">LLM Provider</h3>
+    <ul>
+      <li>Using Groq Llama 3.3-70B</li>
+      <li>Not Gemini (prompt said Gemini)</li>
+      <li>Same interface — swappable without logic change</li>
+      <li>Rate-limit fallback: Llama 3.1-8B</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 style="color:#94a3b8">What IS Real</h3>
+    <ul>
+      <li>All agentic logic is real and running</li>
+      <li>RAG retrieval is live against real vectors</li>
+      <li>2-LLM-call architecture is enforced in code</li>
+      <li>Curator agent expands KB live during demo</li>
+    </ul>
+  </div>
+</div>
+
+<div class="footer">
+  Concord — AgenTrix 2026 · Built with FastAPI · Next.js 15 · Supabase pgvector · Groq · Sentence Transformers
+</div>
+
+</body>
+</html>
