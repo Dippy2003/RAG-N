@@ -19,7 +19,7 @@ GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_FALLBACK_MODEL = "llama-3.1-8b-instant"
 
 _SYSTEM = """You are a clinical system router. Read the user message and return a JSON object with:
-- "intent": one of "register", "update", "db_update", "prescribe", "query", "reconcile", or "chat"
+- "intent": one of "register", "update", "db_update", "prescribe", "query", "reconcile", "add_guideline", or "chat"
 - "params": extracted parameters
 
 Intent rules (READ CAREFULLY — ambiguous cases are explained):
@@ -48,6 +48,15 @@ Intent rules (READ CAREFULLY — ambiguous cases are explained):
 
 - "reconcile": user wants conflict/safety analysis for a specific patient ID.
   Keywords: conflicts, reconcile, safe, drug interaction analysis, check safety.
+
+- "add_guideline": user wants to TEACH the system a new clinical rule / guideline to remember
+  for future safety checks — NOT about a specific patient.
+  Keywords: add a guideline, add a rule, remember that, new guideline, teach the system,
+            from now on flag, the system should know, add to knowledge base.
+  Examples: "Add a guideline: don't give ACE inhibitors in pregnancy",
+            "Remember that metoclopramide should be avoided under 1 year",
+            "Teach the system that grapefruit interacts with statins".
+  Extract: text = the full clinical rule the user described (verbatim or lightly cleaned).
 
 - "chat": everything else — general questions, explain, what is, how does, guidelines.
 
@@ -96,6 +105,7 @@ Return ONLY valid JSON. No explanation. No markdown. Examples:
 {"intent": "query", "params": {"query_type": "medications", "source_ref_id": "CLN-001"}}
 {"intent": "query", "params": {"query_type": "allergies", "source_ref_id": "CLN-002"}}
 {"intent": "query", "params": {"query_type": "search", "filter": "warfarin"}}
+{"intent": "add_guideline", "params": {"text": "Don't give ACE inhibitors to pregnant patients, risk of fetal harm"}}
 """
 
 

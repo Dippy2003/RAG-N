@@ -22,10 +22,19 @@ type Notification = {
   created_at: string;
 };
 
+type Citation = {
+  id: string;
+  title: string;
+  severity?: string;
+  category?: string;
+  relevance?: number;
+};
+
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
   guidelines?: string[];
+  citations?: Citation[];
   action?: string;
   action_data?: {
     source_ref_id?: string;
@@ -404,8 +413,137 @@ const AGENTS = [
   { id: "query",     label: "Query",     desc: "Search & list records"  },
   { id: "reconcile", label: "Reconcile", desc: "Conflict analysis"      },
   { id: "db_update", label: "DB Update", desc: "Modify clinical data"   },
+  { id: "add_guideline", label: "Curator", desc: "Teach a new guideline" },
   { id: "chat",      label: "Chat",      desc: "General clinical Q&A"   },
 ] as const;
+
+const SEVERITY_STYLE: Record<string, string> = {
+  critical: "bg-red-500/10 text-red-300 border-red-500/30 hover:bg-red-500/20",
+  high:     "bg-orange-500/10 text-orange-300 border-orange-500/30 hover:bg-orange-500/20",
+  medium:   "bg-amber-500/10 text-amber-300 border-amber-500/30 hover:bg-amber-500/20",
+  low:      "bg-teal-500/10 text-teal-300/80 border-teal-500/25 hover:bg-teal-500/20",
+};
+
+function severityStyle(sev?: string) {
+  return SEVERITY_STYLE[(sev || "").toLowerCase()] ?? "bg-teal-500/10 text-teal-400/70 border-teal-500/20 hover:bg-teal-500/20";
+}
+
+function CitationChips({
+  citations, guidelines, onOpen,
+}: {
+  citations?: Citation[];
+  guidelines?: string[];
+  onOpen: (id: string) => void;
+}) {
+  // Prefer rich citations; fall back to plain guideline IDs.
+  const items: Citation[] =
+    citations && citations.length > 0
+      ? citations
+      : (guidelines ?? []).map((id) => ({ id, title: "" }));
+
+  if (items.length === 0) return null;
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="flex flex-wrap items-center gap-1 mt-1.5">
+      <span className="text-[9px] uppercase tracking-widest text-white/25 mr-0.5">Sources</span>
+      {items.map((c) => (
+        <motion.button
+          key={c.id}
+          onClick={() => onOpen(c.id)}
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: "spring", stiffness: 300 }}
+          title={c.title ? `${c.title}${c.relevance ? ` · ${Math.round(c.relevance * 100)}% match` : ""}` : c.id}
+          className={`group flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-mono border transition-colors cursor-pointer ${severityStyle(c.severity)}`}
+        >
+          <span>{c.id}</span>
+          {c.severity && <span className="w-1 h-1 rounded-full bg-current opacity-60" />}
+        </motion.button>
+      ))}
+    </motion.div>
+  );
+}
+
+type GuidelineDetail = {
+  guideline_id: string;
+  category: string;
+  title: string;
+  content: string;
+  severity: string;
+  tags: string;
+};
+
+function GuidelinePanel({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const [data, setData] = useState<GuidelineDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!id) { setData(null); setError(""); return; }
+    setLoading(true); setError("");
+    fetch(`${API}/guideline/${id}`)
+      .then(async (r) => {
+        if (!r.ok) throw new Error((await r.json()).detail ?? `HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((d: GuidelineDetail) => setData(d))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  return (
+    <AnimatePresence>
+      {id && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            onClick={onClose}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+          />
+          <motion.div
+            key="guideline-panel"
+            initial={{ x: 420, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 420, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 320, damping: 34 }}
+            className="fixed top-0 right-0 h-full w-[400px] max-w-[90vw] bg-[#141417] border-l border-white/10 shadow-2xl z-50 flex flex-col"
+          >
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+              <span className="text-[11px] font-semibold text-white/35 uppercase tracking-widest">Clinical Guideline</span>
+              <button onClick={onClose} className="text-white/30 hover:text-white/70 transition-colors text-sm">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 pb-6">
+              {loading && <p className="text-white/40 text-sm mt-4">Loading {id}…</p>}
+              {error && <p className="text-red-400/80 text-sm mt-4">Could not load {id}: {error}</p>}
+              {data && (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="font-mono text-xs text-white/50">{data.guideline_id}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-mono ${severityStyle(data.severity)}`}>
+                      {data.severity?.toUpperCase()}
+                    </span>
+                    <span className="text-[10px] text-white/30">{data.category?.replace(/_/g, " ")}</span>
+                  </div>
+                  <h3 className="text-white text-base font-semibold leading-snug mb-3">{data.title}</h3>
+                  <p className="text-white/70 text-sm leading-relaxed whitespace-pre-wrap">{data.content}</p>
+                  {data.tags && (
+                    <div className="flex flex-wrap gap-1 mt-5">
+                      {data.tags.split(/\s+/).filter(Boolean).slice(0, 16).map((t, i) => (
+                        <span key={i} className="text-[10px] px-2 py-0.5 rounded-md bg-white/5 text-white/40">{t}</span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-white/25 mt-6 leading-relaxed">
+                    Retrieved via vector search from the Concord knowledge base. This guideline is
+                    injected into the AI&apos;s context at decision time.
+                  </p>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
 
 function AgentSwitcher({
   pinnedAgent,
@@ -481,6 +619,7 @@ export default function Home() {
   const endRef                            = useRef<HTMLDivElement>(null);
   const inputRef                          = useRef<HTMLTextAreaElement>(null);
   const [confirmPending, setConfirmPending] = useState<string | null>(null);
+  const [openGuideline, setOpenGuideline] = useState<string | null>(null);
   const [activeRole, setActiveRole]       = useState<SourceRole>("CLN");
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [notifOpen, setNotifOpen]         = useState(false);
@@ -584,7 +723,7 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail ?? `HTTP ${res.status}`);
-      setMessages((p) => [...p, { role:"assistant", content:data.reply, guidelines:data.guidelines_used, action:data.action, action_data:data.action_data }]);
+      setMessages((p) => [...p, { role:"assistant", content:data.reply, guidelines:data.guidelines_used, citations:data.citations, action:data.action, action_data:data.action_data }]);
     } catch (e: unknown) {
       setMessages((p) => [...p, { role:"assistant", content:`Something went wrong: ${e instanceof Error ? e.message : "Unknown error"}` }]);
     } finally {
@@ -982,19 +1121,7 @@ export default function Home() {
 
                         <ActionCard action={m.action} action_data={m.action_data} />
 
-                        {m.guidelines && m.guidelines.length > 0 && (
-                          <motion.div initial={{opacity:0}} animate={{opacity:1}} transition={{delay:0.2}} className="flex flex-wrap gap-1 mt-1">
-                            {m.guidelines.map((g) => (
-                              <motion.span key={g}
-                                initial={{scale:0.8,opacity:0}} animate={{scale:1,opacity:1}}
-                                transition={{type:"spring",stiffness:300}}
-                                className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-400/70 font-mono border border-teal-500/20"
-                              >
-                                {g}
-                              </motion.span>
-                            ))}
-                          </motion.div>
-                        )}
+                        <CitationChips citations={m.citations} guidelines={m.guidelines} onOpen={setOpenGuideline} />
                       </div>
 
                       {m.role === "user" && (
@@ -1125,6 +1252,8 @@ export default function Home() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <GuidelinePanel id={openGuideline} onClose={() => setOpenGuideline(null)} />
     </div>
   );
 }

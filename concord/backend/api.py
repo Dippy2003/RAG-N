@@ -34,6 +34,7 @@ from registration_agent import register_patient_from_details, RegistrationResult
 from prescription_agent import process_prescription, PrescriptionResult
 from database_agent import process_db_update, DbUpdateResult
 from query_agent import run_query, QueryResult
+from curator_agent import add_guideline, CuratorResult
 from notification_agent import (
     create_notification, get_notifications, mark_read,
     notify_prescription_blocked, notify_escalation,
@@ -150,11 +151,34 @@ class ChatRequest(BaseModel):
     forced_intent: str = ""                       # bypass router: "register"|"prescribe"|"query"|"reconcile"|"db_update"|"chat"
 
 
+class Citation(BaseModel):
+    id: str
+    title: str
+    severity: str = ""
+    category: str = ""
+    relevance: float = 0.0   # cosine similarity 0..1
+
+
 class ChatResponse(BaseModel):
     reply: str
     guidelines_used: list[str] = []
+    citations: list[Citation] = []     # rich provenance for retrieved guidelines
     action: str | None = None          # "registered" | "duplicate" | None
     action_data: dict | None = None    # registration result details
+
+
+def _to_citations(guidelines: list[dict]) -> list[Citation]:
+    """Build rich citation objects from retrieved guideline rows."""
+    out: list[Citation] = []
+    for g in guidelines:
+        out.append(Citation(
+            id=g.get("guideline_id", ""),
+            title=g.get("title", ""),
+            severity=g.get("severity", ""),
+            category=g.get("category", ""),
+            relevance=round(float(g.get("similarity", 0)), 3),
+        ))
+    return out
 
 
 # ------------------------------------------------------------------ #
@@ -451,7 +475,7 @@ def chat(req: ChatRequest):
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured.")
 
     # ── Router: classify intent (or use forced_intent to bypass) ──────────
-    _valid_intents = {"register", "update", "db_update", "prescribe", "query", "reconcile", "chat"}
+    _valid_intents = {"register", "update", "db_update", "prescribe", "query", "reconcile", "add_guideline", "chat"}
     if req.forced_intent and req.forced_intent in _valid_intents:
         intent = req.forced_intent
         # Still run router to extract params, but override the intent
@@ -461,6 +485,53 @@ def chat(req: ChatRequest):
         route_result = route(req.message)
         intent = route_result.get("intent", "chat")
         params = route_result.get("params", {})
+
+    if intent == "add_guideline":
+        rule_text = (params.get("text") or req.message).strip()
+        try:
+            cur: CuratorResult = add_guideline(rule_text)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Curator failed: {e!s}")
+
+        if cur.action == "added":
+            reply = (
+                f"**Guideline added to the knowledge base.**\n\n"
+                f"**ID:** {cur.guideline_id}\n"
+                f"**Title:** {cur.title}\n"
+                f"**Category:** {cur.category.replace('_', ' ')}\n"
+                f"**Severity:** {cur.severity.upper()}\n\n"
+                f"{cur.content}\n\n"
+                f"_This guideline is now live — the prescription, reconciliation, and "
+                f"chat agents will retrieve it automatically in future safety checks._"
+            )
+            return ChatResponse(
+                reply=reply,
+                action="guideline_added",
+                action_data={"guideline_id": cur.guideline_id, "patient_name": cur.title},
+                citations=[Citation(
+                    id=cur.guideline_id, title=cur.title,
+                    severity=cur.severity, category=cur.category, relevance=1.0,
+                )],
+            )
+
+        if cur.action == "duplicate":
+            reply = (
+                f"**Already covered.**\n\n{cur.message}\n\n"
+                f"If you want to change the existing rule, edit guideline "
+                f"**{cur.duplicate_of}** instead of adding a new one."
+            )
+            return ChatResponse(
+                reply=reply,
+                action="guideline_duplicate",
+                action_data={"guideline_id": cur.duplicate_of, "patient_name": cur.title},
+                citations=[Citation(
+                    id=cur.duplicate_of, title=cur.title,
+                    severity=cur.severity, category=cur.category,
+                    relevance=cur.duplicate_similarity,
+                )],
+            )
+
+        raise HTTPException(status_code=500, detail=cur.message)
 
     if intent in ("register", "update"):
         # For update: find the patient by name if no source_ref_id given
@@ -642,7 +713,10 @@ def chat(req: ChatRequest):
     system_prompt = (
         "You are Concord Assistant, an AI clinical advisor for Sri Lankan healthcare. "
         "You help clinicians understand patient records, conflicts, drug interactions, and clinical guidelines. "
-        "Answer clearly and concisely. Flag safety-critical issues urgently."
+        "Answer clearly and concisely. Flag safety-critical issues urgently.\n"
+        "When a retrieved guideline below informs your answer, cite its ID inline in square "
+        "brackets, e.g. [LK-003] or [DI-001], immediately after the relevant claim. "
+        "Only cite IDs that appear in the guidelines provided. Do not invent guideline IDs."
         f"\n\n{context_block}"
         f"{patient_context}"
     )
@@ -718,7 +792,32 @@ def chat(req: ChatRequest):
         else:
             raise HTTPException(status_code=500, detail=f"LLM error: {e!s}")
 
-    return ChatResponse(reply=response.choices[0].message.content or "", guidelines_used=guideline_ids)
+    return ChatResponse(
+        reply=response.choices[0].message.content or "",
+        guidelines_used=guideline_ids,
+        citations=_to_citations(guidelines),
+    )
+
+
+@app.get("/guideline/{guideline_id}")
+def get_guideline(guideline_id: str):
+    """Fetch one clinical guideline by its ID (for citation pop-overs)."""
+    try:
+        from supabase import create_client as _sc
+        sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+        resp = (
+            sb.table("medical_guidelines")
+            .select("guideline_id, category, title, content, severity, tags")
+            .eq("guideline_id", guideline_id.upper())
+            .execute()
+        )
+        if not resp.data:
+            raise HTTPException(status_code=404, detail=f"Guideline {guideline_id} not found.")
+        return resp.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/notifications")
