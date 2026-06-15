@@ -74,10 +74,14 @@ Query Agent → LLM formats with RAG context
 
 | Layer | Technology | Role |
 |---|---|---|
-| Frontend | Next.js 14, TypeScript, Tailwind CSS | Chat UI, role selector, notification bell |
-| API | FastAPI + Uvicorn (Python 3.11+) | REST endpoints, intent routing |
+| Frontend | Next.js 14, TypeScript, Tailwind CSS | Chat UI, role selector, notification bell, voice chat |
+| API | FastAPI + Uvicorn (Python 3.11+) | REST endpoints, intent routing, Vapi Custom LLM |
+| Voice AI | Vapi AI + `@vapi-ai/web` SDK | Browser voice pipeline (STT → LLM → TTS) |
+| STT | Deepgram (via Vapi) | Speech-to-text transcription |
+| TTS | PlayHT (via Vapi) | Text-to-speech for assistant responses |
+| Tunnel | Cloudflare Tunnel (`cloudflared`) | Exposes local backend to Vapi over HTTPS |
 | LLM Primary | Gemini 2.0 Flash | Adjudication, conflict safety review |
-| LLM Secondary | Groq Llama 3.3-70B | All agent tool loops |
+| LLM Secondary | Groq Llama 3.3-70B | All agent tool loops + voice chat responses |
 | LLM Tertiary | Groq Llama 3.1-8B | Rate-limit fallback |
 | Embeddings | all-MiniLM-L6-v2 (offline, 384-dim) | Patient matching + RAG search |
 | Database | Supabase (PostgreSQL + pgvector) | All data + vector search |
@@ -102,7 +106,7 @@ Concord uses a **custom agent architecture** for full control:
 ```
 concord/
 ├── backend/
-│   ├── api.py                  ← FastAPI routes (main entry point)
+│   ├── api.py                  ← FastAPI routes + /chat/completions Vapi endpoint
 │   ├── router_agent.py         ← Intent classification (7 intents)
 │   ├── registration_agent.py   ← Patient register + update + re-embed
 │   ├── agent.py                ← Reconciliation pipeline + LLM adjudication
@@ -125,7 +129,7 @@ concord/
 │
 ├── frontend/
 │   └── app/
-│       └── page.tsx            ← Full chat UI (single page)
+│       └── page.tsx            ← Full chat UI + Vapi voice chat (single page)
 │
 ├── SYSTEM_DOCUMENTATION.html   ← Full written docs (open in browser → Save as PDF)
 └── SYSTEM_DIAGRAMS.html        ← Visual diagrams (open in browser → Save as PDF)
@@ -208,12 +212,65 @@ Role selector in the header filters to: ALL | CLN | LAB | PHM
 
 ---
 
+## Voice Chat (Vapi AI)
+
+Concord supports full voice conversation via [Vapi AI](https://vapi.ai). Click the microphone button in the chat header to speak to the assistant — no typing needed.
+
+### Voice Pipeline
+
+```
+User speaks into mic
+       │
+       ▼
+Vapi STT (Deepgram) — transcribes speech to text
+       │
+       ▼
+POST /chat/completions → FastAPI backend (via Cloudflare Tunnel)
+       │
+       ▼
+Same router + agents + RAG as text chat
+(Groq Llama 3.3-70B, max 3 sentences, no markdown)
+       │
+       ▼
+OpenAI-compatible SSE streaming response
+       │
+       ▼
+Vapi TTS (PlayHT) — speaks the response aloud
+```
+
+### Voice Setup Requirements
+
+1. **Vapi account** — create a free assistant ("Riley") at [vapi.ai](https://vapi.ai)
+2. **Riley assistant config:**
+   - Provider: **Custom LLM**
+   - Custom LLM URL: your Cloudflare tunnel base URL (e.g. `https://xxxx.trycloudflare.com`)
+   - Vapi appends `/chat/completions` automatically — do NOT add it to the URL
+3. **Cloudflare Tunnel** — exposes local port 8080 to Vapi over HTTPS:
+   ```bash
+   cloudflared tunnel --url http://localhost:8080
+   ```
+   Copy the `trycloudflare.com` URL and paste it as the Custom LLM URL in Vapi.
+4. **Public key** — add your Vapi public key (not private key) to the frontend `Vapi("your-public-key")` call.
+
+> **Note:** The Cloudflare Tunnel URL changes on every `cloudflared` restart. Update the Vapi Custom LLM URL when this happens.
+
+### Voice in the Chat UI
+
+- Mic button in the top-right of the header starts/stops voice
+- Status badge shows: **Connecting → Listening → Speaking**
+- Voice transcript appears in the chat as user messages (prefixed with 🎙️)
+- Assistant replies are both spoken aloud AND shown in chat
+- Full turn transcripts use `conversation-update` event (not `transcript`) to avoid word-by-word splitting
+
+---
+
 ## API Endpoints
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/health` | Health check |
 | POST | `/chat` | Main chat endpoint — all intents handled here |
+| POST | `/chat/completions` | Vapi Custom LLM endpoint (OpenAI SSE format) |
 | GET | `/notifications` | List notifications (`?source=CLN\|LAB\|PHM`) |
 | DELETE | `/notifications/{id}` | Delete one notification |
 | DELETE | `/notifications` | Clear all for a location (`?source=CLN`) |
@@ -248,6 +305,8 @@ Role selector in the header filters to: ALL | CLN | LAB | PHM
 - Supabase project with pgvector enabled
 - Gemini API key — [aistudio.google.com](https://aistudio.google.com)
 - Groq API key (free) — [console.groq.com](https://console.groq.com)
+- Vapi account (free) — [vapi.ai](https://vapi.ai) *(for voice chat)*
+- `cloudflared` binary — download from [developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) *(for voice chat)*
 
 ### 1. Environment Variables
 
@@ -258,6 +317,7 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_SERVICE_KEY=your_service_role_key
 GEMINI_API_KEY=your_gemini_key
 GROQ_API_KEY=your_groq_key
+VAPI_API_KEY=your_vapi_private_key
 ```
 
 ### 2. Supabase Setup
@@ -302,7 +362,20 @@ npm run dev
 
 Open `http://localhost:3000`.
 
-### 5. Smoke Tests
+### 5. Voice Chat Setup (optional)
+
+```bash
+# Start Cloudflare Tunnel to expose port 8080
+cloudflared tunnel --url http://localhost:8080
+# Copy the https://xxxx.trycloudflare.com URL
+```
+
+Then in your Vapi dashboard:
+- Open your Riley assistant → **Model** tab → set **Provider** to **Custom LLM**
+- Set **Custom LLM URL** to the `trycloudflare.com` URL (no path suffix)
+- Save. Click the mic button in Concord to start talking.
+
+### 6. Smoke Tests
 
 ```bash
 # Test RAG retrieval (should print matched guidelines for 6 queries)
@@ -340,6 +413,18 @@ Add allergy penicillin for CLN-001
 Prescribe amoxicillin for CLN-001      ← blocked: penicillin allergy
 What are the dengue NSAID guidelines?
 ```
+
+### Try These by Voice (click the mic button)
+
+```
+"Tell me about CLN-001"              ← patient lookup via voice
+"What are the dengue guidelines?"    ← RAG-powered clinical Q&A
+"Search patients with warfarin"      ← query intent via speech
+"What drug interactions should I know about?"
+```
+
+> Voice responses are limited to 3 sentences, spoken aloud in plain English (no markdown).
+> For actions that modify data (prescribe, register, db_update), use text chat — voice is read-only by design.
 
 ---
 
