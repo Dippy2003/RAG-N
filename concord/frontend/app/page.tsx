@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAutoAnimate } from "@formkit/auto-animate/react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import Vapi from "@vapi-ai/web";
 
 const API = "http://localhost:8080";
 
@@ -630,6 +631,9 @@ export default function Home() {
   const [sessions, setSessions]           = useState<Session[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>(() => crypto.randomUUID());
   const [historyOpen, setHistoryOpen]     = useState(false);
+  const [voiceActive, setVoiceActive]     = useState(false);
+  const [voiceStatus, setVoiceStatus]     = useState<"idle"|"connecting"|"active"|"speaking">("idle");
+  const vapiRef                           = useRef<Vapi | null>(null);
 
   const [messageListRef] = useAutoAnimate<HTMLDivElement>();
   const [notifListRef]   = useAutoAnimate<HTMLDivElement>();
@@ -757,6 +761,52 @@ export default function Home() {
     });
     if (id === currentSessionId) newChat();
   }
+
+  // ── Vapi voice ───────────────────────────────────────────────────────────────
+  const toggleVoice = useCallback(async () => {
+    if (voiceActive) {
+      vapiRef.current?.stop();
+      vapiRef.current = null;
+      setVoiceActive(false);
+      setVoiceStatus("idle");
+      return;
+    }
+
+    setVoiceStatus("connecting");
+    setVoiceActive(true);
+
+    const vapi = new Vapi("d51ec9e5-6bbd-427c-b0ed-93ca08af6c24");
+    vapiRef.current = vapi;
+
+    vapi.on("call-start", () => setVoiceStatus("active"));
+    vapi.on("speech-start", () => setVoiceStatus("speaking"));
+    vapi.on("speech-end", () => setVoiceStatus("active"));
+    vapi.on("call-end", () => { setVoiceActive(false); setVoiceStatus("idle"); vapiRef.current = null; });
+    vapi.on("error", () => { setVoiceActive(false); setVoiceStatus("idle"); vapiRef.current = null; });
+
+    // Mirror voice transcript into chat — only on conversation updates
+    vapi.on("message", (msg: { type: string; role?: string; transcript?: string; transcriptType?: string; conversation?: {role: string; content: string}[] }) => {
+      if (msg.type === "conversation-update" && msg.conversation) {
+        const last = msg.conversation[msg.conversation.length - 1];
+        if (last?.role === "user" && last.content) {
+          setMessages((p) => {
+            const prev = p[p.length - 1];
+            if (prev?.role === "user" && prev.content === `🎙️ ${last.content}`) return p;
+            return [...p, { role: "user", content: `🎙️ ${last.content}` }];
+          });
+        }
+        if (last?.role === "assistant" && last.content) {
+          setMessages((p) => {
+            const prev = p[p.length - 1];
+            if (prev?.role === "assistant" && prev.content === last.content) return p;
+            return [...p, { role: "assistant", content: last.content }];
+          });
+        }
+      }
+    });
+
+    vapi.start("40e706cf-af9e-490d-a506-366502ff4bbf");
+  }, [voiceActive]);
 
   const showWelcome = messages.length === 0 && !loading;
 
@@ -980,6 +1030,26 @@ export default function Home() {
 
           {/* Right: online + role badge */}
           <div className="flex items-center gap-3">
+            {/* Voice active indicator */}
+            <AnimatePresence>
+              {voiceActive && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/15 border border-red-500/30"
+                >
+                  <motion.span
+                    className="w-1.5 h-1.5 rounded-full bg-red-400"
+                    animate={{ opacity: [1, 0.3, 1] }}
+                    transition={{ duration: 0.8, repeat: Infinity }}
+                  />
+                  <span className="text-[10px] text-red-300 font-semibold uppercase tracking-widest">
+                    {voiceStatus === "connecting" ? "Connecting" : voiceStatus === "speaking" ? "Speaking" : "Listening"}
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
             <div className="flex items-center gap-1.5">
               <motion.span
                 className="w-1.5 h-1.5 rounded-full bg-teal-400"
@@ -1195,17 +1265,52 @@ export default function Home() {
             {/* Bottom bar */}
             <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/5">
               <AgentSwitcher pinnedAgent={pinnedAgent} setPinnedAgent={setPinnedAgent} />
-              <motion.button
-                onClick={() => send()}
-                disabled={loading || !input.trim()}
-                whileTap={{ scale:0.88 }}
-                whileHover={{ scale:1.05 }}
-                className="w-8 h-8 rounded-xl bg-linear-to-br from-teal-400 to-cyan-600 flex items-center justify-center disabled:opacity-25 shadow-md shadow-teal-500/20 transition-opacity"
-              >
-                <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
-                </svg>
-              </motion.button>
+              <div className="flex items-center gap-2">
+                {/* Voice button */}
+                <motion.button
+                  onClick={toggleVoice}
+                  whileTap={{ scale: 0.88 }}
+                  whileHover={{ scale: 1.05 }}
+                  title={voiceActive ? "Stop voice" : "Start voice chat"}
+                  className={`relative w-8 h-8 rounded-xl flex items-center justify-center transition-colors ${
+                    voiceActive
+                      ? "bg-red-500/20 border border-red-500/40 text-red-400"
+                      : "bg-white/5 border border-white/10 text-white/35 hover:text-white/60"
+                  }`}
+                >
+                  {voiceStatus === "connecting" && (
+                    <motion.span
+                      className="absolute inset-0 rounded-xl border border-teal-400/60"
+                      animate={{ scale: [1, 1.4], opacity: [0.8, 0] }}
+                      transition={{ duration: 0.9, repeat: Infinity }}
+                    />
+                  )}
+                  {voiceStatus === "speaking" && (
+                    <motion.span
+                      className="absolute inset-0 rounded-xl border border-red-400/50"
+                      animate={{ scale: [1, 1.3], opacity: [0.7, 0] }}
+                      transition={{ duration: 0.6, repeat: Infinity }}
+                    />
+                  )}
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4M12 3a4 4 0 014 4v5a4 4 0 01-8 0V7a4 4 0 014-4z" />
+                  </svg>
+                </motion.button>
+
+                {/* Send button */}
+                <motion.button
+                  onClick={() => send()}
+                  disabled={loading || !input.trim()}
+                  whileTap={{ scale:0.88 }}
+                  whileHover={{ scale:1.05 }}
+                  className="w-8 h-8 rounded-xl bg-linear-to-br from-teal-400 to-cyan-600 flex items-center justify-center disabled:opacity-25 shadow-md shadow-teal-500/20 transition-opacity"
+                >
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
+                  </svg>
+                </motion.button>
+              </div>
             </div>
           </div>
         </motion.div>

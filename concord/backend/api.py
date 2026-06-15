@@ -16,9 +16,11 @@ import json
 import os
 import re as _re
 import time
+import uuid as _uuid
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from groq import Groq
 from pydantic import BaseModel
@@ -1153,3 +1155,126 @@ def reconcile_verified(req: VerifiedReconcileRequest):
         reconciliation=_build_reconcile_response(recon_report),
         id_was_corrected=id_was_corrected,
     )
+
+
+# ------------------------------------------------------------------ #
+# Vapi voice integration — Custom LLM endpoint
+# ------------------------------------------------------------------ #
+
+def _strip_markdown(text: str) -> str:
+    """Remove markdown so text sounds natural when spoken aloud."""
+    text = _re.sub(r"\*\*(.+?)\*\*", r"\1", text)       # bold
+    text = _re.sub(r"\*(.+?)\*", r"\1", text)            # italic
+    text = _re.sub(r"#{1,6}\s+", "", text)               # headers
+    text = _re.sub(r"`{1,3}[^`]*`{1,3}", "", text)       # code
+    text = _re.sub(r"^\s*[-*]\s+", "", text, flags=_re.M) # bullets
+    text = _re.sub(r"\|[^\n]+\|", "", text)              # tables
+    text = _re.sub(r"\n{3,}", "\n\n", text)              # blank lines
+    return text.strip()
+
+
+@app.post("/chat/completions")
+@app.post("/vapi-llm")
+async def vapi_llm(request: Request):
+    """
+    Vapi Custom LLM endpoint.
+    Vapi calls this with OpenAI-format messages after transcribing speech.
+    We run our full chat pipeline and stream back an OpenAI SSE response.
+    Vapi then reads the reply aloud via TTS.
+    """
+    body = await request.json()
+    vapi_messages: list[dict] = body.get("messages", [])
+
+    # Extract last user message and prior history
+    history: list[dict] = []
+    user_msg = ""
+    for m in vapi_messages:
+        role = m.get("role", "")
+        content = m.get("content", "") or ""
+        if role in ("user", "assistant"):
+            if role == "user" and m is vapi_messages[-1]:
+                user_msg = content
+            else:
+                history.append({"role": role, "content": content})
+
+    if not user_msg:
+        user_msg = "Hello"
+
+    # Run our router + chat pipeline (same as /chat)
+    routed = route(user_msg, history=history)
+    intent = routed.get("intent", "chat")
+    params = routed.get("params", {})
+
+    reply = "I'm sorry, I couldn't process that request."
+
+    try:
+        if intent == "query":
+            qr = run_query(params)
+            if qr.success and qr.rows:
+                names = [r.get("name", r.get("source_ref_id", "")) for r in qr.rows[:5]]
+                reply = f"Found {qr.total} result{'s' if qr.total != 1 else ''}. " + ", ".join(names)
+                if qr.total > 5:
+                    reply += f", and {qr.total - 5} more."
+            else:
+                reply = qr.message or "No results found."
+
+        elif intent in ("chat", "reconcile", "add_guideline"):
+            # Fall back to LLM with RAG
+            guidelines = retrieve_for_chat(user_msg, top_k=3)
+            ctx = format_guidelines_context(guidelines) if guidelines else ""
+            sys_content = (
+                "You are Concord, a clinical AI assistant. Answer concisely in plain spoken English — "
+                "no markdown, no bullet points, no tables. Keep responses under 3 sentences for voice."
+            )
+            if ctx:
+                sys_content += f"\n\n{ctx}"
+            msgs = [{"role": "system", "content": sys_content}]
+            for h in history[-4:]:
+                msgs.append(h)
+            msgs.append({"role": "user", "content": user_msg})
+            groq = Groq(api_key=GROQ_API_KEY)
+            resp = groq.chat.completions.create(
+                model=GROQ_MODEL, messages=msgs, temperature=0.3, max_tokens=200,
+            )
+            reply = resp.choices[0].message.content or reply
+
+        else:
+            # For register/prescribe/db_update — acknowledge and guide to text
+            reply = (
+                "That action requires confirmation. Please type it in the chat for safety, "
+                "and I'll process it there."
+            )
+
+    except Exception as e:
+        reply = f"I encountered an error: {type(e).__name__}. Please try again."
+
+    reply = _strip_markdown(reply)
+
+    # Stream back in OpenAI SSE format that Vapi expects
+    call_id = f"vapi-{_uuid.uuid4().hex[:8]}"
+
+    async def _stream():
+        # Split reply into words and stream chunk by chunk for natural TTS pacing
+        words = reply.split()
+        chunk_size = 8
+        for i in range(0, len(words), chunk_size):
+            chunk_text = " ".join(words[i:i + chunk_size])
+            if i + chunk_size < len(words):
+                chunk_text += " "
+            chunk = {
+                "id": call_id,
+                "object": "chat.completion.chunk",
+                "choices": [{"index": 0, "delta": {"content": chunk_text}, "finish_reason": None}],
+            }
+            yield f"data: {json.dumps(chunk)}\n\n"
+
+        # Final chunk
+        done_chunk = {
+            "id": call_id,
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+        }
+        yield f"data: {json.dumps(done_chunk)}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
