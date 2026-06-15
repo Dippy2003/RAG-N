@@ -177,6 +177,90 @@ def retrieve_for_chat(query: str, top_k: int = 4) -> list[dict]:
     )
 
 
+def retrieve_alternatives(blocked_drug: str, existing_meds: list[str], allergies: list[str], top_k: int = 4) -> list[dict]:
+    """
+    RAG retrieval for safe alternative drugs after a prescription is blocked.
+    Searches for guidelines that mention the blocked drug AND contain words like
+    'alternative', 'instead', 'replace', 'substitute', 'consider', 'switch'.
+    """
+    query = (
+        f"Safe alternatives to {blocked_drug}. Substitute or replacement drugs "
+        f"when {blocked_drug} is contraindicated or causes interactions. "
+        f"Patient is on: {', '.join(existing_meds) or 'no current medications'}. "
+        f"Allergies: {', '.join(allergies) or 'none'}."
+    )
+    results = retrieve_guidelines(
+        query=query,
+        top_k=top_k,
+        threshold=0.25,
+        category="drug_interaction",
+        keyword=blocked_drug.split()[0].lower(),
+        rerank=True,
+    )
+    # Also cast wider with allergy_mismatch in case it's an allergy-related block
+    allergy_results = retrieve_guidelines(
+        query=query,
+        top_k=2,
+        threshold=0.25,
+        category="allergy_mismatch",
+        rerank=True,
+    )
+    seen = set()
+    merged = []
+    for r in results + allergy_results:
+        gid = r.get("guideline_id")
+        if gid not in seen:
+            seen.add(gid)
+            merged.append(r)
+    merged.sort(key=lambda r: r.get("score", 0), reverse=True)
+    return merged[:top_k]
+
+
+def retrieve_registration_risks(
+    medications: list[str],
+    allergies: list[str],
+    blood_type: str = "",
+    top_k: int = 6,
+) -> list[dict]:
+    """
+    RAG retrieval for risk flagging at patient registration time.
+    Checks each medication against allergies and known high-risk combinations.
+    Returns critical/high severity guidelines relevant to the patient's profile.
+    """
+    if not medications and not allergies:
+        return []
+
+    med_str     = ", ".join(medications) if medications else "none"
+    allergy_str = ", ".join(allergies)   if allergies   else "none"
+    query = (
+        f"Patient medications: {med_str}. Known allergies: {allergy_str}. "
+        f"Blood type: {blood_type or 'unknown'}. "
+        f"Drug interactions, allergy conflicts, contraindications, and safety risks."
+    )
+
+    drug_results = retrieve_guidelines(
+        query=query, top_k=top_k,
+        threshold=0.28, category="drug_interaction", rerank=True,
+    )
+    allergy_results = retrieve_guidelines(
+        query=query, top_k=4,
+        threshold=0.28, category="allergy_mismatch", rerank=True,
+    )
+
+    seen, merged = set(), []
+    for r in drug_results + allergy_results:
+        gid = r.get("guideline_id")
+        if gid not in seen:
+            seen.add(gid)
+            merged.append(r)
+
+    merged.sort(key=lambda r: r.get("score", 0), reverse=True)
+
+    # Only surface critical and high severity flags at registration time
+    flagged = [r for r in merged if r.get("severity") in ("critical", "high")]
+    return flagged[:top_k]
+
+
 def format_guidelines_context(guidelines: list[dict]) -> str:
     """Format retrieved guidelines into a readable context block for LLM prompts."""
     if not guidelines:

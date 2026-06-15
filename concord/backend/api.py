@@ -28,7 +28,10 @@ from adjudicator import ReconciliationResult, reconcile
 from agent import AgentReport, run_agent
 from escalation_reviewer import EscalationReport, run_escalation_review
 from identity_agent import IdentityValidationResult, validate_identity
-from rag_retriever import format_guidelines_context, retrieve_guidelines, retrieve_for_chat
+from rag_retriever import (
+    format_guidelines_context, retrieve_guidelines, retrieve_for_chat,
+    retrieve_alternatives, retrieve_registration_risks,
+)
 from router_agent import route
 from registration_agent import register_patient_from_details, RegistrationResult
 from prescription_agent import process_prescription, PrescriptionResult
@@ -549,13 +552,52 @@ def chat(req: ChatRequest):
             raise HTTPException(status_code=500, detail=f"Registration failed: {e!s}")
 
         if reg.action == "registered":
+            # RAG: check the new patient's medications + allergies for known risks
+            risk_guidelines: list[dict] = []
+            try:
+                _meds     = params.get("medications") or []
+                _allergies_reg = params.get("allergies") or []
+                _blood    = params.get("blood_type") or ""
+                if _meds or _allergies_reg:
+                    risk_guidelines = retrieve_registration_risks(_meds, _allergies_reg, _blood, top_k=4)
+            except Exception:
+                pass
+
+            # Build risk block
+            risk_block = ""
+            risk_citations: list[dict] = []
+            if risk_guidelines:
+                risk_lines = []
+                for g in risk_guidelines:
+                    risk_lines.append(f"- **[{g['guideline_id']}]** [{g['severity'].upper()}] {g['title']}")
+                risk_block = "\n\n⚠️ **Risk flags detected at registration:**\n" + "\n".join(risk_lines)
+                risk_citations = risk_guidelines
+
+                # Auto-create a notification for each critical/high risk
+                for g in risk_guidelines:
+                    if g.get("severity") in ("critical", "high"):
+                        create_notification(
+                            source_ref_id=reg.source_ref_id,
+                            patient_name=reg.patient_name,
+                            title=f"Registration Risk — {g['title']}",
+                            message=g.get("content", "")[:300],
+                            urgency=g["severity"],
+                            notification_type="registration",
+                        )
+
             reply = (
                 f"Patient registered successfully!\n\n"
                 f"**Name:** {reg.patient_name}\n"
                 f"**New ID:** {reg.source_ref_id}\n\n"
                 f"You can now ask about this patient using their ID."
+                f"{risk_block}"
             )
-            return ChatResponse(reply=reply, action="registered", action_data={"source_ref_id": reg.source_ref_id, "patient_name": reg.patient_name})
+            return ChatResponse(
+                reply=reply,
+                action="registered",
+                action_data={"source_ref_id": reg.source_ref_id, "patient_name": reg.patient_name},
+                citations=_to_citations(risk_citations),
+            )
 
         if reg.action == "updated":
             _recon_cache.pop(reg.source_ref_id, None)  # invalidate stale cache
@@ -604,14 +646,65 @@ def chat(req: ChatRequest):
                 source_ref_id=rx.source_ref_id, patient_name=rx.patient_name,
                 drug=rx.drug, reason=rx.reason, interactions=rx.interactions_found,
             )
+
+            # RAG: find safe alternative drugs for this patient
+            try:
+                from supabase import create_client as _sc
+                _sb_rx = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+                _pt = _sb_rx.table("source_records").select("medications, allergies").eq("source_ref_id", rx.source_ref_id).execute()
+                _existing_meds = (_pt.data[0].get("medications") or []) if _pt.data else []
+                _allergies     = (_pt.data[0].get("allergies")   or []) if _pt.data else []
+                alt_guidelines = retrieve_alternatives(rx.drug, _existing_meds, _allergies, top_k=3)
+            except Exception:
+                alt_guidelines = []
+
+            # Build alternatives section
+            alt_lines = []
+            for g in alt_guidelines:
+                alt_lines.append(f"- **[{g['guideline_id']}]** {g['title']} _{g.get('severity','').upper()}_")
+            alt_block = (
+                "\n\n**Suggested alternatives (from knowledge base):**\n" + "\n".join(alt_lines)
+                if alt_lines else ""
+            )
+
+            # Single LLM call to turn RAG results into a concrete recommendation
+            alt_reply_extra = ""
+            if alt_guidelines:
+                try:
+                    _alt_context = format_guidelines_context(alt_guidelines)
+                    _client = Groq(api_key=GROQ_API_KEY)
+                    _alt_resp = _client.chat.completions.create(
+                        model=GROQ_MODEL,
+                        messages=[
+                            {"role": "system", "content": (
+                                "You are a clinical pharmacist. A prescription was BLOCKED. "
+                                "Based ONLY on the guidelines provided, suggest 1-3 concrete safe alternatives "
+                                "for the blocked drug. Be specific: name the drug, typical dose, and why it's safer. "
+                                "Keep it under 80 words. Do not invent drugs not mentioned in the guidelines.\n\n"
+                                + _alt_context
+                            )},
+                            {"role": "user", "content": f"Blocked drug: {rx.drug}. Reason: {rx.reason}. Suggest alternatives."},
+                        ],
+                        temperature=0.2, max_tokens=200,
+                    )
+                    alt_reply_extra = "\n\n**AI Recommendation:**\n" + (_alt_resp.choices[0].message.content or "")
+                except Exception:
+                    pass
+
             reply = (
-                f"Prescription BLOCKED — {rx.drug} cannot be safely prescribed.\n\n"
+                f"Prescription **BLOCKED** — {rx.drug} cannot be safely prescribed.\n\n"
                 f"**Reason:** {rx.reason}\n"
                 f"**Interactions:** {', '.join(rx.interactions_found) if rx.interactions_found else 'allergy conflict'}\n\n"
                 f"A notification has been sent to the clinical team."
+                f"{alt_block}"
+                f"{alt_reply_extra}"
             )
-            return ChatResponse(reply=reply, action="prescription_blocked",
-                                action_data={"source_ref_id": rx.source_ref_id, "patient_name": rx.patient_name, "drug": rx.drug})
+            return ChatResponse(
+                reply=reply,
+                action="prescription_blocked",
+                action_data={"source_ref_id": rx.source_ref_id, "patient_name": rx.patient_name, "drug": rx.drug},
+                citations=_to_citations(alt_guidelines),
+            )
 
         raise HTTPException(status_code=500, detail=rx.reason)
 
@@ -771,11 +864,49 @@ def chat(req: ChatRequest):
         m.upper() for m in _re.findall(r'\b(CLN|LAB|PHM)-\d+\b', req.message, _re.IGNORECASE)
     ))
     _conflict_keywords = {"conflict", "conflicts", "interaction", "drug", "safe", "safety",
-                          "escalat", "reconcil", "medic", "allerg", "risk", "danger", "compare"}
+                          "escalat", "reconcil", "medic", "allerg", "risk", "danger"}
     _msg_lower = req.message.lower()
     _is_conflict_query = any(k in _msg_lower for k in _conflict_keywords)
+    _is_compare = "compare" in _msg_lower or "vs" in _msg_lower or "versus" in _msg_lower or "difference" in _msg_lower
 
-    if _id_matches and not patient_context:
+    # ── Compare path: 2+ IDs + compare keyword → fetch all records side-by-side ──
+    if _id_matches and len(_id_matches) >= 2 and _is_compare and not patient_context:
+        from supabase import create_client as _sc
+        _sb_cmp = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+        _cols = "source_ref_id, source, name, dob, nic, phone, blood_type, medications, allergies"
+        for sid in _id_matches:
+            try:
+                _r = _sb_cmp.table("source_records").select(_cols).eq("source_ref_id", sid).execute()
+                if _r.data:
+                    messages.append({
+                        "role": "system",
+                        "content": f"PATIENT RECORD — {sid}:\n{json.dumps(_r.data[0], indent=2, default=str)}",
+                    })
+                else:
+                    messages.append({
+                        "role": "system",
+                        "content": f"PATIENT RECORD — {sid}: NOT FOUND in database.",
+                    })
+            except Exception as _e:
+                messages.append({
+                    "role": "system",
+                    "content": f"PATIENT RECORD — {sid}: fetch failed ({_e}).",
+                })
+        # Also pull RAG guidelines for any shared medications/allergies
+        try:
+            _all_meds: list[str] = []
+            for _msg_sys in messages:
+                if "PATIENT RECORD" in _msg_sys.get("content", ""):
+                    import re as _re2
+                    _all_meds += _re2.findall(r'"medications": \[([^\]]*)\]', _msg_sys["content"])
+            if _all_meds:
+                _compare_guidelines = retrieve_for_chat(f"compare patients medications allergies {' '.join(_all_meds)}", top_k=3)
+                if _compare_guidelines:
+                    messages.append({"role": "system", "content": format_guidelines_context(_compare_guidelines)})
+        except Exception:
+            pass
+
+    elif _id_matches and not patient_context:
         from supabase import create_client as _sc
         _sb = _sc(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
 
