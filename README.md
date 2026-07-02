@@ -1,7 +1,16 @@
 # Concord — Clinical Record Reconciliation System
 
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue?style=for-the-badge&logo=python)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.105.0-lightgrey?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-14-black?style=for-the-badge&logo=nextdotjs)](https://nextjs.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4-cyan?style=for-the-badge&logo=tailwindcss)](https://tailwindcss.com/)
+[![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-blue?style=for-the-badge&logo=supabase)](https://supabase.com/)
+[![Groq](https://img.shields.io/badge/Groq-Llama-green?style=for-the-badge)](https://www.groq.com/)
+[![Vapi AI](https://img.shields.io/badge/Vapi-AI-purple?style=for-the-badge)](https://vapi.ai/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-blue?style=for-the-badge&logo=docker)](https://www.docker.com/)
+
 > Built for **AgenTrix 2026 Hackathon** by Dippy2003  
-> Multi-agent AI platform that reconciles fragmented patient records across Sri Lankan clinics, labs, and pharmacies — using RAG-augmented LLMs, real-time conflict detection, and a full natural-language chat interface.
+> Multi-agent AI platform that reconciles fragmented patient records across Sri Lankan clinics, labs, and pharmacies using RAG-augmented LLMs, real-time conflict detection, and a full natural-language chat interface.
 
 ---
 
