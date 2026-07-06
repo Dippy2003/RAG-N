@@ -14,6 +14,24 @@
 
 ---
 
+## What I Built
+
+- A full-stack clinical reconciliation system with a **Next.js + Tailwind** browser UI and a **Python FastAPI** backend.
+- A **multi-agent LLM pipeline** that routes clinical chat requests into registration, prescription, reconciliation, database, and query workflows.
+- A **RAG-enabled safety engine** using Supabase + pgvector to retrieve clinical guidelines for prescriptions, allergy checks, and conflict adjudication.
+- A **role-aware notification system** for clinic, lab, and pharmacy staff, with cluster-based alerts for cross-location patient conflicts.
+- A **voice-ready assistant** that supports browser voice input/output via Vapi AI and handles clinical conversations with safety-first logic.
+
+## Project Highlights
+
+- **Seven chat intents**: `register`, `update`, `prescribe`, `db_update`, `query`, `reconcile`, and `chat`
+- **Custom agent architecture** instead of LangChain for tighter control over safety and tool execution
+- **Automatic patient clustering** with vector embeddings for identity matching across disconnected records
+- **Clinical conflict detection** across blood type, allergies, medication interactions, and data inconsistencies
+- **Dynamic RAG retrieval** of clinical guidelines at decision time, without retraining the LLM
+
+---
+
 ## The Problem
 
 In Sri Lanka, a single patient's records are scattered across three disconnected systems:
